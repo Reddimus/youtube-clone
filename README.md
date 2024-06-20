@@ -52,7 +52,7 @@ Docker will ensure that the application runs with all necessary dependencies, re
 	```
 3. **Copy a local video file into the docker container**:
 	```sh
-	docker cp ./video.mp4 <container_id>:/app/processed-video.mp4
+	docker cp ./video.mp4 <container_id>:/app/video.mp4
 	```
 4. **POST a request to http://localhost:3000/process-video**:  
 	Body (JSON):
