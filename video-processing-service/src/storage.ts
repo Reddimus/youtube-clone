@@ -1,6 +1,3 @@
-// 1. GCS file interactions
-// 2. Local file interactions
-
 import { Storage } from '@google-cloud/storage';
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
@@ -31,17 +28,15 @@ export function convertVideo(rawVideoName: string, processedVideoName: string) {
     ffmpeg(`${localRawVideoPath}/${rawVideoName}`)
     .outputOptions('-vf', 'scale=-1:360') // 360p
     .on('end', function() {
-      let message: string = 'Processing finished successfully';
-      console.log(message);
+      console.log("Processing finished successfully");
       resolve();
     })
     .on('error', function(err: any) {
-      let message: string = 'An error occurred: ' + err.message;
-      console.log(message);
-      reject(message);
+      console.log("An error occurred: " + err.message);
+      reject(err);
     })
-    .save(`${localRawVideoPath}/${processedVideoName}`);
-  })
+    .save(`${localProcessedVideoPath}/${processedVideoName}`);
+  });
 }
 
 /**
@@ -56,7 +51,7 @@ export async function downloadRawVideo(fileName: string) {
 
   console.log(
     `gs://${rawVideoBucketName}/${fileName} downloaded to ${localRawVideoPath}/${fileName}.`
-  )
+  );
 }
 
 /**
@@ -68,7 +63,7 @@ export async function uploadProcessedVideo(fileName: string) {
   const bucket = storage.bucket(processedVideoBucketName);
 
   await bucket.upload(`${localProcessedVideoPath}/${fileName}`, {
-    destination: fileName
+    destination: fileName,
   });
   console.log(
     `${localProcessedVideoPath}/${fileName} uploaded to gs://${processedVideoBucketName}/${fileName}.`
@@ -105,21 +100,21 @@ export function deleteProcessedVideo(fileName: string) {
 function deleteFile(filePath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(filePath)) {
-      reject(`File ${filePath} does not exist at ${filePath}, skipping deletion.`);
+      console.log(`File does not exist at ${filePath}, skipping deletion.`);
       resolve();  // Or reject() if you want to stop the process
     } else {
       fs.unlink(filePath, (err) => {
         if (err) {
-          console.log(`Error deleting file: ${err} at ${filePath}`);
+          console.log(`Error deleting file at ${filePath}`);
           console.log(`Error: ${err}`);
           reject(err);
         } else {
-          console.log(`Deleted file: ${filePath} at ${filePath}`);
+          console.log(`Deleted file at ${filePath}`);
           resolve();
         }
-      })
+      });
     }
-  })
+  });
 }
 
 /**
@@ -129,6 +124,6 @@ function deleteFile(filePath: string): Promise<void> {
 function ensureDirectoryExistence(dirPath: string) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true }); // recursive: true creates parent directories if they don't exist
-    console.log(`Directory created at ${dirPath}`)
+    console.log(`Directory created at ${dirPath}`);
   }
 }
