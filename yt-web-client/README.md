@@ -1,8 +1,8 @@
-# YT Web Client
+# Web Client
 
 This is the web client for a YouTube clone project. It's built using Next.js and integrates with Firebase for backend services.
 
-## Features
+## Key Features and Technologies:
 
 - **Next.js**: Utilizes the latest features of Next.js for server-side rendering and static site generation.
 - **Firebase Integration**: Uses Firebase for authentication, database, and hosting services.
@@ -19,11 +19,6 @@ Before you begin, ensure you have the following installed:
 - npm (v6 or later)
 
 ### Installation
-
-1. **Clone the repository**:
-   ```sh
-   git clone https://github.com/Reddimus/youtube-clone.git
-   ```
 2. **Navigate to the web client directory**:
    ```sh
     cd yt-web-client
