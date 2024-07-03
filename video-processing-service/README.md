@@ -27,6 +27,16 @@ This Video Processing Service is designed with scalability, performance, and rel
 
 ## Setup guide:
 
+### Prerequisites:
+1. **Navigate to the video-processing-service directory**:
+    ```bash
+    cd video-processing-service
+    ```
+2. **Install dependencies**:
+    ```bash
+    npm install
+    ```
+
 ### Host Video Processing Service on Google Cloud Run:
 #### Create a Google account and create Firebase/Google cloud project.
 1. Sign into [Firebase](https://firebase.google.com/) and click go to the `Console`. Then create a new project which will also create a Google Cloud project. Take note of the `project-id` as you will need it later.
