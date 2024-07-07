@@ -99,9 +99,9 @@ We'd like to process videos as soon as they come in, but it's possible that we c
 
 This provides many benefits:
 
-    1. When a video is uploaded to Cloud Storage, we can publish a message to a Pub/Sub topic. This will allow us to decouple the video upload from the video processing.
-    2. We will use a Pub/Sub subscriptions to [push](https://cloud.google.com/pubsub/docs/push) messages to our video processing workers. In the future we can add additional subscriptions to fan-out these messages, e.g. for analytics.
-    3. If the workers don't have enough capacity to process all the messages, Pub/Sub will automatically buffer the messages for us. This will allow us to scale our workers up and down as needed.
+1. When a video is uploaded to Cloud Storage, we can publish a message to a Pub/Sub topic. This will allow us to decouple the video upload from the video processing.
+2. We will use a Pub/Sub subscriptions to [push](https://cloud.google.com/pubsub/docs/push) messages to our video processing workers. In the future we can add additional subscriptions to fan-out these messages, e.g. for analytics.
+3. If the workers don't have enough capacity to process all the messages, Pub/Sub will automatically buffer the messages for us. This will allow us to scale our workers up and down as needed.
 
 
 After a video is processed, we will upload it to a public Cloud Storage bucket. We will also store the video metadata in Firestore, including the video's processing status. This will allow us to display the processed videos in the web client.
