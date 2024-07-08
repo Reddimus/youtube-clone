@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import {initializeApp} from "firebase-admin/app";
 import {Firestore} from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
+
 import {Storage} from "@google-cloud/storage";
 import {onCall} from "firebase-functions/v2/https";
 
@@ -11,6 +12,17 @@ const firestore = new Firestore();
 const storage = new Storage();
 
 const rawVideoBucketName = "redd-raw-videos";
+
+const videoCollectionId = "videos";
+
+export interface Video {
+  id?: string,
+  uid?: string,
+  filename?: string,
+  status?: "processing" | "processed",
+  title?: string,
+  description?: string
+}
 
 export const createUser = functions.auth.user().onCreate((user) => {
   const userInfo = {
@@ -24,6 +36,13 @@ export const createUser = functions.auth.user().onCreate((user) => {
   return;
 });
 
+/**
+ * Firestore function to generate a signed URL for uploading a video
+ * @param data The video data
+ * @returns The signed URL and filename
+ * @throws functions.https.HttpsError if the user is not authenticated
+ * @example generateUploadUrl({fileExtension: "mp4"})
+ */
 export const generateUploadUrl = onCall({maxInstances: 1}, async (request) => {
   // Check if the user is authenticated
   if (!request.auth) {
@@ -48,4 +67,17 @@ export const generateUploadUrl = onCall({maxInstances: 1}, async (request) => {
   });
 
   return {url, fileName};
+});
+
+/**
+ * Firestore function to get a video by ID
+ * @param videoId The ID of the video
+ * @returns The video object
+ * @throws functions.https.HttpsError if the video is not found
+ * @example getVideo("abc123")
+ */
+export const getVideos = onCall({maxInstances: 1}, async () => {
+  const snapshot =
+    await firestore.collection(videoCollectionId).limit(10).get();
+  return snapshot.docs.map((doc) => doc.data());
 });
