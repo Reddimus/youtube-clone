@@ -52,6 +52,10 @@ Navigate to the `functions` directory and open the `package.json` file. Update t
 Now we will install the necessary packages for our firebase functions project.
 
 ```sh
+cd functions
+```
+
+```sh
 npm install
 ```
 
