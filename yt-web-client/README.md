@@ -56,6 +56,8 @@ const firebaseConfig = {
 
 > Note: The following code is a template. Replace the placeholders with your Firebase project's configuration. API keys and other sensitive information should be kept secret.
 
+> Note: If you already have a Firebase project, you can find the `Firebase SDK configuration` in the Firebase console under `Project Overview` > `Project Settings` > `Your apps` > `Firebase SDK snippet`.
+
 Optional: Or instead, you can create a `.env.local` file in the root directory of the project and add the following environment variables to keep the sensitive information private.
 
 ```sh
