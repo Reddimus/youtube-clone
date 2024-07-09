@@ -28,21 +28,20 @@ This Video Processing Service is designed with scalability, performance, and rel
 ## Setup guide:
 
 ### Prerequisites:
-1. **Navigate to the video-processing-service directory**:
+1. **Make sure you are in the `video-processing-service` directory**:
     ```bash
     cd video-processing-service
     ```
-2. **Install dependencies**:
+2. **Install Node.js (20) and npm dependencies**:
     ```bash
     npm install
     ```
 
-### Host Video Processing Service on Google Cloud Run:
-#### Create a Google account and create Firebase/Google cloud project.
-1. Sign into [Firebase](https://firebase.google.com/) and click go to the `Console`. Then create a new project which will also create a Google Cloud project. Take note of the `project-id` as you will need it later.
-2. Sign into [Google Cloud](https://cloud.google.com/). Go to the `Cloud Console` and select the project you created in Firebase to check if the Google Cloud project was created properly.
+### Create a Google account and Firebase/Google cloud account
+1. Sign into [Firebase](https://firebase.google.com/) and click go to the `Console`. You can view your Firebase projects here. If you don't have access to this `YouTube Clone` project, you request access from the project owner.
+2. Sign into [Google Cloud](https://cloud.google.com/). Go to the `Cloud Console`. You can view your Google Cloud projects here. If you don't have access to this `YouTube Clone` project, you request access from the project owner.
 
-#### Install `gcloud` and `gsutil` CLI tools.
+### Install `gcloud` and `gsutil` CLI tools.
 1. Follow the instructions [here](https://cloud.google.com/sdk/docs/install).
 2. Then Make sure to authentication with your account and set your project:
     ```bash
@@ -51,108 +50,32 @@ This Video Processing Service is designed with scalability, performance, and rel
     gcloud config set project <PROJECT_ID>
     ```
 
-#### Upload the Docker image to Google Artifact Registry
-1. Enable artifact registry
-    ```bash
-    gcloud services enable artifactregistry.googleapis.com
-    ```
-2. (Optional) Update gcloud components
-    ```bash
-    gcloud components update
-    ```
-3. Create an Artifact Registry repository
-    ```bash
-    gcloud artifacts repositories create video-processing-repo \
-    --repository-format=docker \
-    --location=us-central1 \
-    --description="Docker repository for video processing service"
-    ```
-4. Then, rebuild your Docker image. With this naming scheme, docker knows where to push the image and which project.
-    ```bash
-    docker build -t us-central1-docker.pkg.dev/<PROJECT_ID>/video-processing-repo/video-processing-service .
-    ```
-> Important: If you are using mac, add --platform linux/amd64 to the above command.
-5. You may still need to configure Docker to use gcloud as the credential helper:
-    ```bash
-    gcloud auth configure-docker us-central1-docker.pkg.dev
-    ```
-6. Then, push the Docker image to Google Artifact Registry:
-    ```bash
-    docker push us-central1-docker.pkg.dev/<PROJECT_ID>/video-processing-repo/video-processing-service
-    ```
+### (Optional) Update gcloud components
+```bash
+gcloud components update
+```
 
-#### Deploy our Docker image to Google Cloud Run
-- Deploy to Google Cloud Run
-    ```bash
-    # Enable cloud run
-    gcloud services enable run.googleapis.com
+That's it! You have successfully set up the video processing service folder for development.
 
+## Build and push Docker image to Google Artifact Registry
+
+1. **Build the Docker image**:
+    ```bash
+    docker build -t us-central1-docker.pkg.dev/<PROJECT_ID>/yt-web-client-repo/yt-web-client .
+    ```
+2. **Push the Docker image to Google Artifact Registry**:
+    ```bash
+    docker push us-central1-docker.pkg.dev/<PROJECT_ID>/yt-web-client-repo/yt-web-client
+    ```
+3. **Deploy the Docker image to Google Cloud Run**:
+    ```bash
     # Deploy container to cloud run
-    gcloud run deploy video-processing-service --image us-central1-docker.pkg.dev/PROJECT_ID/video-processing-repo/video-processing-service \
+    gcloud run deploy yt-web-client --image us-central1-docker.pkg.dev/<PROJECT_ID>/yt-web-client-repo/yt-web-client \
     --region=us-central1 \
     --platform managed \
     --timeout=3600 \
     --memory=2Gi \
     --cpu=1 \
     --min-instances=0 \
-    --max-instances=1 \
-    --ingress=internal
+    --max-instances=1
     ```
-- We are setting the ingress to internal so that only GCP internal services can access it. This is so that our Pub/Sub service can invoke it, but not the outside world.
-
-- In addition, it might be good to use the `-—no-allow-unauthenticated` flag to limit other internal services. Meaning we can set it up so that only our Pub/Sub service can invoke it and not our other GCP internal services. But this would be cumbersome to setup, so we will skip it for now.
-
-### Create Pub/Sub Topic and Subscription:
-
-#### Create Pub/Sub topic
-
-```bash
-gcloud pubsub topics create <TOPIC_NAME>
-```
-
-#### Create Pub/Sub subscription
-
-Using the endpoint URL of the video processing service from Cloud Run, create a Pub/Sub subscription.
-
-```bash
-gcloud pubsub subscriptions create SUBSCRIPTION_NAME \
-  --topic=TOPIC_NAME \
-  --push-endpoint=SERVICE_URL \
-  --ack-deadline=600
-```
-
->> You can also do this in the Google Cloud Console: https://console.cloud.google.com/cloudpubsub/topicList
-
-### Create Cloud Storage buckets
-
-#### Create raw videos bucket
-
-```bash
-# Create raw videos bucket
-gsutil mb -l us-central1 --pap=enforced gs://<BUCKET_NAME>
-
-# Configure bucket to send file upload notifications to Pub/Sub topic
-gsutil notification create -t <topic-name> -f json -e OBJECT_FINALIZE gs://<BUCKET_NAME>
-```
-
-Make sure to use the same topic name that you created in the previous lesson.
-
-#### Create processed videos bucket
-
-```bash
-# Create processed videos bucket
-gsutil mb -l us-central1 gs://<BUCKET_NAME>
-```
-
-
-## Testing the Video Processing Service
-
-We can now finally test our video processing service. We will upload a video to the raw videos bucket and see if the video processing service processes it.
-
-1. Upload a video to the raw videos bucket on [Google Cloud Storage](https://console.cloud.google.com).
-
-2. Check the logs of the video processing service on [Google Cloud Run](https://console.cloud.google.com/run).
-
-3. Check the processed videos bucket on [Google Cloud Storage](https://console.cloud.google.com).
-
-That's it! You have successfully deployed the video processing service to Google Cloud Run and tested it.
