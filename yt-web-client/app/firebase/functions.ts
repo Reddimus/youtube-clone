@@ -26,6 +26,7 @@ export async function uploadVideo(file: File) {
     headers: {
       'Content-Type': file.type,
     },
+    cache: 'no-cache'
   });
 
   return uploadResult;
