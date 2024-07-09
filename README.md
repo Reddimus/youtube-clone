@@ -12,6 +12,8 @@ YouTube is a video sharing platform that allows users to upload, view, rate, sha
 
 The scope of YouTube is very large, such that even "trivial" features like rating and commenting on videos are actually quite complex at this scale (1B+ daily active users). For this reason, we will be focusing mostly on uploading videos, and a bit on viewing videos.
 
+### [Pre-requisites](./docs/pre-requisites.md)
+
 ## User outcomes:
 
 1. Users can sign in/out using their Google account

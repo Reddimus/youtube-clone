@@ -8,6 +8,7 @@ import SignIn from "./sign-in";
 import { onAuthStateChangedHelper } from "../firebase/firebase";
 import { useEffect, useState } from "react";
 import { User } from "firebase/auth";
+import Upload from "./upload";
 
 export default function Navbar() {
   // Initialize user state
@@ -30,8 +31,7 @@ export default function Navbar() {
           src="/yt-logo.svg" alt="redd-logo" />
       </Link>
       {
-        // TODO: Add a upload
-
+        user && <Upload /> // If user is signed in show upload icon
       }
       <SignIn user={user}/>
     </nav>
