@@ -25,23 +25,21 @@ Authenticate with your Google account:
 firebase login
 ```
 
-### 2. Initialize Firebase Functions
+### 2. Install packages
 
-In the root of our git repo, create a directory for our firebase functions.
-
-```sh
-mkdir yt-api-service && cd yt-api-service
-```
-
-Then initialize firebase functions.
+Make sure you are in the `yt-api-service` directory.
 
 ```sh
-firebase init functions
+cd yt-api-service
 ```
 
-Make sure to select the project you created in the previous section. Then select `TypeScript` as the language for the functions. Then enable `ESLint` and `TSLint` for linting. Lastly, select `No` for installing dependencies with npm as we will do this manually and upgrade the `package.json` engine to `node` version `20`.
+Then navigate to the `functions` directory.
 
-Navigate to the `functions` directory and open the `package.json` file. Update the `engine` field to use `node` version `20`.
+```sh
+cd functions
+```
+
+Open the `package.json` file. Ensure that the node version is set to 20.
 
 ```json
 "engines": {
@@ -69,9 +67,7 @@ npm install firebase-functions@latest firebase-admin@latest
 
 The admin SDK is used to access firebase services from privileged environments (like a server). We will use it to access the firestore database.
 
-### 3. Run Firebase Emulator (Testing/Optinal)
-
-Within the `functions/src` directory, open the `index.ts` file and uncomment the `helloWorld` function defined in index.ts
+## Test with Firebase Emulator
 
 Build firebase functions and run the emulator.
 
@@ -85,17 +81,9 @@ Navigate to `http://localhost:4000` to see the firebase emulator UI.
 
 It is similar to the Firebase console UI, but it is only for local development. It will not affect your actual Firebase project.
 
-Navigate to function logs and you should find a url that you can paste into your browser to test the function.
+Navigate to function logs and you should find a url that you can paste into your browser to test functions.
 
-### 4. Create User Function
-
-Update the `index.ts` file to look like this repository's `functions/src/index.ts` file. This file contains the `createUser` function that will be triggered whenever a new user is created.
-
-The `index.ts` file is the entry point for our firebase functions. It is where we define our functions and export them.
-
-Alternatively we could define our functions in separate files and import them into `index.ts`. But for now we will keep it simple and define it in `index.ts`.
-
-### 5. Deploy Firebase Functions
+### Deploy Firebase Functions
 
 (Optional): Before deploying you may need to rerun npm install in the functions directory. For some reason I had errors when deploying without doing this.
 
@@ -111,13 +99,7 @@ And then you can deploy the functions.
 npm run deploy
 ```
 
-That's it! You have successfully created a Firebase function that will create a user document in Firestore whenever a new user is created.
-
-## Test Create User Function
-
-In the firebase console, navigate to the `Authentication` tab and delete the user created in a previous lesson.
-
-Rerun the Next.js app and try to login again. This time the user should be created in both Firebase Auth and in the Firestore database.
+That's it! We can view deployed functions in the `Firebase console -> Functions` and `Google Cloud Console -> Cloud Functions`.
 
 ## References
 
