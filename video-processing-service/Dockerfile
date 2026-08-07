@@ -1,41 +1,36 @@
-# Stage 1: Build stage
-FROM node:20 AS builder
+FROM node:22-bookworm-slim AS builder
 
-# Set the working directory in the container to /app
 WORKDIR /app
 
-# Copy package.json and package-lock.json into the working directory
-COPY package*.json ./
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Install any needed packages specified in package.json
-RUN npm install
-
-# Bundle app source inside the docker image
 COPY . .
-
-# Build the app
 RUN npm run build
 
-# Stage 2: Production stage
-FROM node:20
+FROM node:22-bookworm-slim AS runner
 
-# Install ffmpeg in the container
-RUN apt-get update && apt-get install -y ffmpeg
+ENV NODE_ENV=production \
+    PORT=3000
 
-# Set the working directory
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y ca-certificates ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy package.json and package-lock.json
-COPY package*.json ./
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev \
+  && npm cache clean --force \
+  && mkdir -p raw-videos processed-videos \
+  && chown -R node:node /app
 
-# Install only production dependencies
-RUN npm install --only=production
+COPY --from=builder --chown=node:node /app/dist ./dist
 
-# Copy built app from the builder stage
-COPY --from=builder /app/dist ./dist
+USER node
 
-# Make port 3000 available to the world outside this container
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
-# Define the command to run your app using CMD which defines your runtime
-CMD [ "npm", "run", "serve" ]
+CMD ["node", "dist/index.js"]

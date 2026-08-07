@@ -1,39 +1,47 @@
-# Stage 1: Build stage
-FROM node:20 AS builder
+FROM node:22-bookworm-slim AS builder
 
-# Set the working directory
 WORKDIR /app
 
-# Copy package*.json files
-COPY package*.json ./
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Install all dependencies
-RUN npm install
-
-# Copy other source code files
 COPY . .
 
-# Build the app
+ARG NEXT_PUBLIC_FIREBASE_API_KEY
+ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID
+ARG NEXT_PUBLIC_FIREBASE_APP_ID
+ARG NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+ARG NEXT_PUBLIC_PROCESSED_VIDEO_BUCKET=redd-processed-videos
+ENV NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY} \
+    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN} \
+    NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID} \
+    NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID} \
+    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID} \
+    NEXT_PUBLIC_PROCESSED_VIDEO_BUCKET=${NEXT_PUBLIC_PROCESSED_VIDEO_BUCKET}
+
+RUN test -n "$NEXT_PUBLIC_FIREBASE_API_KEY" \
+  && test -n "$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN" \
+  && test -n "$NEXT_PUBLIC_FIREBASE_PROJECT_ID" \
+  && test -n "$NEXT_PUBLIC_FIREBASE_APP_ID"
 RUN npm run build
 
-# Stage 2: Production stage
-FROM node:20
+FROM node:22-bookworm-slim AS runner
 
-# Set the working directory
+ENV NODE_ENV=production \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
+
 WORKDIR /app
 
-# Copy package*.json files
-COPY package*.json ./
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 
-# Install only production dependencies
-RUN npm install --only=production
+USER node
 
-# Copy built app from the builder stage
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-
-# Expose the listening port
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
-# Run the app
-CMD ["npm", "start"]
+CMD ["node", "server.js"]

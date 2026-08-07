@@ -1,1 +1,12 @@
 node_modules
+dist
+coverage
+.git
+.DS_Store
+npm-debug.log*
+raw-videos
+processed-videos
+.env*
+*-key.json
+*service-account*.json
+credentials*.json

@@ -1,67 +1,84 @@
-import { initializeApp } from "firebase/app";
-import { 
-  getAuth, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged, 
-  User 
-} from "firebase/auth";
 import { getAnalytics, isSupported } from "firebase/analytics";
-import { getFunctions } from "firebase/functions";
+import {
+  GoogleAuthProvider,
+  getAuth,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  type User,
+} from "firebase/auth";
+import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
+import { getFunctions, type Functions } from "firebase/functions";
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
-};
+import { readFirebaseConfig } from "./config";
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+let analyticsInitializationStarted = false;
 
-const auth = getAuth(app);
-
-export const functions = getFunctions(app);
-
-let analytics;
-if (typeof window !== "undefined") {
-  isSupported().then((supported) => {
-    if (supported) {
-      analytics = getAnalytics(app);
-    }
-  });
+function requireBrowser(): void {
+  if (typeof window === "undefined") {
+    throw new Error("Firebase client services can only be used in a browser.");
+  }
 }
 
-/**
- * Signs the user in with a Google popup.
- * @returns A promise that resolves with the user's credentials.
- */
+function startAnalytics(app: FirebaseApp): void {
+  if (analyticsInitializationStarted) {
+    return;
+  }
+
+  analyticsInitializationStarted = true;
+  void isSupported()
+    .then((supported) => {
+      if (supported) {
+        getAnalytics(app);
+      }
+    })
+    .catch(() => {
+      // Analytics is optional and must not prevent authentication or uploads.
+    });
+}
+
+function getFirebaseApp(): FirebaseApp {
+  requireBrowser();
+
+  const app =
+    getApps().length > 0
+      ? getApp()
+      : initializeApp(
+          readFirebaseConfig({
+            NEXT_PUBLIC_FIREBASE_API_KEY:
+              process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+            NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:
+              process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+            NEXT_PUBLIC_FIREBASE_PROJECT_ID:
+              process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+            NEXT_PUBLIC_FIREBASE_APP_ID:
+              process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+            NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:
+              process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
+          }),
+        );
+
+  startAnalytics(app);
+  return app;
+}
+
+export function getFirebaseFunctions(): Functions {
+  return getFunctions(getFirebaseApp());
+}
+
+/** Signs the user in with a Google popup. */
 export function signInWithGoogle() {
-  return signInWithPopup(auth, new GoogleAuthProvider());
+  return signInWithPopup(getAuth(getFirebaseApp()), new GoogleAuthProvider());
 }
 
-/**
- * Signs the user in with a GitHub popup.
- * @returns A promise that resolves with the user's credentials.
- */
-// export function signInWithGitHub() {
-//   return signInWithPopup(auth, new GithubAuthProvider());
-// }
-
-/**
- * Signs the user out.
- * @returns A promise that resolves when the user is signed out.
- */
+/** Signs the current user out. */
 export function signOut() {
-  return auth.signOut();
+  return firebaseSignOut(getAuth(getFirebaseApp()));
 }
 
-/**
- * Trigger a callback when user auth state changes.
- * @returns A function to unsubscribe callback.
- */
-export function onAuthStateChangedHelper(callback: (user: User | null) => void) {
-  return onAuthStateChanged(auth, callback);
+/** Subscribes to browser authentication state changes. */
+export function onAuthStateChangedHelper(
+  callback: (user: User | null) => void,
+) {
+  return onAuthStateChanged(getAuth(getFirebaseApp()), callback);
 }

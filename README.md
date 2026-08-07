@@ -4,6 +4,10 @@
 
 The goal of this project is not to build a 1 to 1 clone of YouTube, but rather to build a rough skeleton where the core functionality of YouTube is implemented.
 
+Use Node.js 22 for every JavaScript service (`nvm use` reads the root
+`.nvmrc`). Each service provides an `npm run check` command for its complete
+local validation gate.
+
 We are focused on keeping the design as simple as possible, while still addressing some scalability tradeoffs. We are focused on learning, not building a production ready system.
 
 ## Background:
@@ -90,11 +94,16 @@ Ideally, we should only allow authenticated users to upload videos. This will al
 
 While we could allow users to upload videos directly to a server we manage ourselves, it's more simple to use a service like Google Cloud Storage, which is specifically designed for arbitrarily large files like videos.
 
-But to prevent unauthorized users from uploading videos, we will generate a [signed URL](https://cloud.google.com/storage/docs/access-control/signed-urls) that will allow the user to upload a video directly to Cloud Storage. We will implement this in a public Firebase Function, but this way we can easily ensure the user is authenticated before generating the URL.
+To prevent unauthorized uploads, an authenticated Firebase callable generates a
+short-lived signed POST policy. The browser can then upload directly to Cloud
+Storage without receiving server credentials.
 
-> Note: We will invoke this function only after the user has specificed which video they want to upload. This is because we need to know the extension of the video file before we can generate the signed URL.
+> Note: We invoke this function only after the user selects a video because the
+> signed policy binds the extension, content type, and upload-size limit.
 
-The signed URL can be used directly from the client to upload a video to our private Cloud Storage bucket for raw videos.
+The callable returns a signed V4 POST policy that the client uses to upload
+directly to the private raw-video bucket. The policy enforces the supported
+content type and a 250 MiB maximum object size.
 
 ### 3. Video Processing
 We'd like to process videos as soon as they come in, but it's possible that we could receive a large number of uploads at once which we can't immediately process. To solve this problem we will introduce a message queue to our system - Cloud Pub/Sub.

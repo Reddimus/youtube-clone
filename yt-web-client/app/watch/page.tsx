@@ -3,14 +3,20 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
+import { isSafeProcessedVideoName } from '../firebase/functions';
+import { processedVideoUrl } from '../firebase/storage';
+
 function WatchContent() {
-  const videoPrefix = 'https://storage.googleapis.com/redd-processed-videos/';
   const videoSrc = useSearchParams().get('v');
+
+  if (!isSafeProcessedVideoName(videoSrc)) {
+    return <div role="alert">Invalid video.</div>;
+  }
 
   return (
     <div>
       <h1>Watch Page</h1>
-      <video controls src={videoPrefix + videoSrc}/>
+      <video controls src={processedVideoUrl(videoSrc)}/>
     </div>
   );
 }

@@ -1,43 +1,128 @@
-import { credential } from "firebase-admin";
-import {initializeApp} from "firebase-admin/app";
-import {Firestore} from "firebase-admin/firestore";
+import { randomUUID } from "node:crypto";
 
-initializeApp({credential: credential.applicationDefault()});
+import {
+  applicationDefault,
+  getApps,
+  initializeApp,
+} from "firebase-admin/app";
+import {
+  FieldValue,
+  Timestamp,
+  getFirestore,
+} from "firebase-admin/firestore";
 
-const firestore = new Firestore();
+import { uploadTimestamp, type VideoClaimResult } from "./claims";
 
-// Note: This requires setting an env variable in Cloud Run
-/** if (process.env.NODE_ENV !== 'production') {
-  firestore.settings({
-      host: "localhost:8080", // Default port for Firestore emulator
-      ssl: false
-  });
-} */
+const firebaseApp =
+  getApps()[0] ?? initializeApp({ credential: applicationDefault() });
+const firestore = getFirestore(firebaseApp);
 
 const videoCollectionId = "videos";
+const claimLeaseMilliseconds = 65 * 60 * 1000;
 
-export interface Video {
-  id?: string,
-  uid?: string,
-  filename?: string,
-  status?: "processing" | "processed",
-  title?: string,
-  description?: string
+interface StoredVideo {
+  claimToken?: string;
+  claimedAt?: Timestamp;
+  status?: "processing" | "processed" | "failed";
 }
 
-async function getVideo(videoId: string) {
-  const snapshot = await firestore.collection(videoCollectionId).doc(videoId).get();
-  return (snapshot.data() as Video) ?? {};
+export async function claimVideo(
+  videoId: string,
+  uid: string,
+): Promise<VideoClaimResult> {
+  const videoReference = firestore.collection(videoCollectionId).doc(videoId);
+  const claimToken = randomUUID();
+  const now = Timestamp.now();
+
+  return firestore.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(videoReference);
+    const video = snapshot.data() as StoredVideo | undefined;
+
+    if (video?.status === "processed") {
+      return { status: "processed" };
+    }
+
+    if (video?.status === "processing") {
+      const claimedAt =
+        video.claimedAt instanceof Timestamp
+          ? video.claimedAt.toMillis()
+          : uploadTimestamp(videoId);
+      if (
+        claimedAt === null ||
+        now.toMillis() - claimedAt < claimLeaseMilliseconds
+      ) {
+        return { status: "leased" };
+      }
+    }
+
+    transaction.set(
+      videoReference,
+      {
+        id: videoId,
+        uid,
+        status: "processing",
+        claimToken,
+        claimedAt: now,
+        updatedAt: now,
+      },
+      { merge: true },
+    );
+
+    return { status: "claimed", token: claimToken };
+  });
 }
 
-export function setVideo(videoId: string, video: Video) {
-  return firestore
-    .collection(videoCollectionId)
-    .doc(videoId)
-    .set(video, { merge: true });
+export async function completeVideo(
+  videoId: string,
+  claimToken: string,
+  filename: string,
+): Promise<boolean> {
+  const videoReference = firestore.collection(videoCollectionId).doc(videoId);
+
+  return firestore.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(videoReference);
+    const video = snapshot.data() as StoredVideo | undefined;
+    if (video?.claimToken !== claimToken || video.status !== "processing") {
+      return false;
+    }
+
+    transaction.set(
+      videoReference,
+      {
+        status: "processed",
+        filename,
+        claimToken: FieldValue.delete(),
+        claimedAt: FieldValue.delete(),
+        updatedAt: Timestamp.now(),
+      },
+      { merge: true },
+    );
+    return true;
+  });
 }
 
-export async function isVideoNew(videoId: string) {
-  const video = await getVideo(videoId);
-  return video?.status == undefined;
+export async function failVideo(
+  videoId: string,
+  claimToken: string,
+): Promise<void> {
+  const videoReference = firestore.collection(videoCollectionId).doc(videoId);
+
+  await firestore.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(videoReference);
+    const video = snapshot.data() as StoredVideo | undefined;
+    if (video?.claimToken !== claimToken || video.status !== "processing") {
+      return;
+    }
+
+    transaction.set(
+      videoReference,
+      {
+        status: "failed",
+        claimToken: FieldValue.delete(),
+        claimedAt: FieldValue.delete(),
+        updatedAt: Timestamp.now(),
+      },
+      { merge: true },
+    );
+  });
 }

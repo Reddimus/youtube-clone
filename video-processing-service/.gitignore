@@ -1,3 +1,10 @@
-node_modules
-*.mp4
-*.mov
+node_modules/
+dist/
+coverage/
+raw-videos/
+processed-videos/
+*.local
+.env*
+*-key.json
+*service-account*.json
+credentials*.json
