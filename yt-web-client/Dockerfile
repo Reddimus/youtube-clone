@@ -3,7 +3,7 @@
 # The app is an npm workspace and depends on packages/contract, so the whole
 # workspace has to be visible to the installer.
 
-FROM node:24-bookworm-slim AS builder
+FROM node:25-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -56,7 +56,7 @@ RUN if [ -n "$NEXT_PUBLIC_FIREBASE_PROJECT_ID" ]; then \
 RUN npm run build --workspace @yt/contract \
   && npm run build --workspace yt-web-client
 
-FROM node:24-bookworm-slim AS runner
+FROM node:25-bookworm-slim AS runner
 
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
