@@ -8,6 +8,17 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # These majors are deliberately held; see the closed PRs #11-#15 for why.
+    ignore:
+      # typescript-eslint@8 peers on `typescript <6.1.0`; TS 7 disables typed linting.
+      - dependency-name: typescript
+        versions: [">=7.0.0"]
+      # eslint-config-next@16 bundles an eslint-plugin-react that crashes on ESLint 10.
+      - dependency-name: eslint
+        versions: [">=10.0.0"]
+      # @types/node must track the Node 24 runtime, not lead it.
+      - dependency-name: "@types/node"
+        versions: [">=25.0.0"]
     groups:
       types:
         patterns: ["@types/*"]
@@ -29,3 +40,7 @@ updates:
       - /video-processing-service
     schedule:
       interval: monthly
+    # Node 25 is a non-LTS current release; this project tracks Active LTS only.
+    ignore:
+      - dependency-name: node
+        versions: ["25.x"]
