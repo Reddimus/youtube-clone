@@ -1,72 +1,80 @@
-"use client";
-
-import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 
-import {
-  getVideos,
-  isSafeProcessedVideoName,
-  type Video,
-} from "./firebase/functions";
+import { VideoCard } from "./components/video-card";
+import { fetchVideoPage } from "./lib/videos";
 import styles from "./page.module.css";
 
-export default function Home() {
-  const [videos, setVideos] = useState<Video[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+export const dynamic = "force-dynamic";
 
-  useEffect(() => {
-    let active = true;
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ cursor?: string }>;
+}) {
+  const { cursor } = await searchParams;
 
-    void getVideos()
-      .then((result) => {
-        if (active) {
-          setVideos(result);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setError("Videos could not be loaded. Please try again later.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (loading) {
-    return <main aria-busy="true">Loading videos…</main>;
-  }
-
-  if (error) {
-    return <main role="alert">{error}</main>;
+  let page;
+  let failed = false;
+  try {
+    page = await fetchVideoPage({ limit: 12, cursor });
+  } catch {
+    failed = true;
   }
 
   return (
-    <main>
-      {videos
-        .filter((video) => isSafeProcessedVideoName(video.filename))
-        .map((video) => (
-          <Link
-            href={{ pathname: "/watch", query: { v: video.filename } }}
-            key={video.id}
-          >
-            <Image
-              src="/default-thumbnail.png"
-              alt="Video thumbnail"
-              width={120}
-              height={80}
-              className={styles.thumbnail}
-            />
+    <>
+      <header className={styles.intro}>
+        <h1 className={styles.heading}>The reel</h1>
+        <p className={styles.lede}>
+          Every upload is decoded once and developed into up to a 360p and a
+          720p rendition before it lands here. Nothing is ever upscaled.
+        </p>
+      </header>
+
+      {failed ? (
+        <div className={styles.notice} role="alert">
+          <h2>The feed is unreachable</h2>
+          <p>
+            The video API did not respond. If you are running Redd locally, make
+            sure the Firebase emulators are running.
+          </p>
+          <Link href="/" className={styles.retry}>
+            Try again
           </Link>
-        ))}
-    </main>
+        </div>
+      ) : page && page.videos.length > 0 ? (
+        <>
+          <ul className={styles.grid}>
+            {page.videos.map((video) => (
+              <VideoCard key={video.id} video={video} />
+            ))}
+          </ul>
+          {page.nextCursor && (
+            <nav className={styles.pagination} aria-label="Feed pagination">
+              <Link
+                href={{ query: { cursor: page.nextCursor } }}
+                className={styles.more}
+              >
+                Load more
+              </Link>
+            </nav>
+          )}
+        </>
+      ) : (
+        <div className={styles.notice}>
+          <h2>Nothing developed yet</h2>
+          <p>
+            {cursor
+              ? "You have reached the end of the reel."
+              : "Sign in and upload a video — it will appear here once the pipeline finishes transcoding it."}
+          </p>
+          {cursor && (
+            <Link href="/" className={styles.retry}>
+              Back to the start
+            </Link>
+          )}
+        </div>
+      )}
+    </>
   );
 }

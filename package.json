@@ -1,0 +1,40 @@
+{
+  "name": "youtube-clone",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A YouTube clone built on Firebase Auth, Cloud Storage, Pub/Sub, Cloud Run, and Next.js.",
+  "license": "ISC",
+  "engines": {
+    "node": "24"
+  },
+  "packageManager": "npm@12.0.2",
+  "workspaces": [
+    "packages/*",
+    "yt-web-client",
+    "yt-api-service/functions",
+    "video-processing-service"
+  ],
+  "scripts": {
+    "build:contract": "npm run build --workspace @yt/contract",
+    "build": "npm run build:contract && npm run build --workspace yt-web-client --workspace @yt/api-service --workspace video-processing-service",
+    "type-check": "npm run build:contract && npm run type-check --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm run type-check && npm run lint && npm run test:coverage && npm run build",
+    "dev": "npm run dev --workspace yt-web-client"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.9.0",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^4.1.10"
+  }
+}

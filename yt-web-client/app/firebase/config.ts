@@ -34,8 +34,7 @@ export function readFirebaseConfig(
     );
   }
 
-  const measurementId =
-    environment.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID?.trim();
+  const measurementId = environment.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID?.trim();
 
   return {
     apiKey: environment.NEXT_PUBLIC_FIREBASE_API_KEY!.trim(),

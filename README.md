@@ -1,131 +1,217 @@
-# YouTube Clone
+# Redd
 
-## Introduction:
+A small video platform: upload a file, watch a machine develop it into a
+360p/720p rendition ladder, then play it back. It is a working end-to-end
+implementation of the hard parts of a video service — signed direct-to-storage
+uploads, an event-driven transcoding pipeline, and exactly-once processing under
+retries — rather than a UI mockup.
 
-The goal of this project is not to build a 1 to 1 clone of YouTube, but rather to build a rough skeleton where the core functionality of YouTube is implemented.
+> **Status: offline prototype.** Nothing is hosted publicly. The repository is
+> self-contained and runs on `npm install && npm run dev` with no cloud account,
+> no API keys, and no configuration. See [Run it](#run-it).
 
-Use Node.js 22 for every JavaScript service (`nvm use` reads the root
-`.nvmrc`). Each service provides an `npm run check` command for its complete
-local validation gate.
+![The feed](docs/screenshots/feed-dark.png)
 
-We are focused on keeping the design as simple as possible, while still addressing some scalability tradeoffs. We are focused on learning, not building a production ready system.
+![The watch page](docs/screenshots/watch-dark.png)
 
-## Background:
+---
 
-YouTube is a video sharing platform that allows users to upload, view, rate, share, and comment on videos.
+## Run it
 
-The scope of YouTube is very large, such that even "trivial" features like rating and commenting on videos are actually quite complex at this scale (1B+ daily active users). For this reason, we will be focusing mostly on uploading videos, and a bit on viewing videos.
+Requires **Node 24** (`.nvmrc` pins 24.19.0) and nothing else.
 
-### [Pre-requisites](./docs/pre-requisites.md)
+```bash
+git clone https://github.com/Reddimus/youtube-clone.git
+cd youtube-clone
+nvm use            # or install Node 24 however you prefer
+npm install
+npm run dev        # http://localhost:3000
+```
 
-## User outcomes:
+That is the whole setup. With no Firebase project configured the app starts in
+**demo mode**: the feed is seeded from `yt-web-client/app/lib/demo-data.ts` and
+the sample renditions in `yt-web-client/public/samples` are served by the app
+itself, so video playback and the quality switcher genuinely work offline.
+Sign-in and uploading are disabled and the header says so.
 
-1. Users can sign in/out using their Google account
-2. Users can upload videos while signed in
-3. Videos should be transcoded to multiple formats (e.g. 360p, 720p)
-4. Users can view a list of uploaded videos (signed in or not)
-5. Users can view individual videos (signed in or not)
+To run everything at once:
 
-## Tech Stack:
+```bash
+npm run check      # format, type-check, lint, test with coverage, build — all workspaces
+npm test           # tests only
+npm run build      # build every workspace
+```
 
-1. TypeScript
-2. Next.js
-3. Express.js
-4. Docker
-5. FFmpeg
-6. Firebase Auth
-7. Firebase Functions
-8. Firebase Firestore
-9. Google Cloud Storage
-10. Google Cloud Pub/Sub
-11. Google Cloud Run
+Connecting it to a real Firebase project is documented in
+[`docs/setup.md`](docs/setup.md).
 
-## Architecture:
+---
 
-![system-design](./docs/system-design.jpg)  
+## What is actually interesting here
 
-> The high level architecture of the app, specifically the cloud services we will use.
+**The upload never touches a server.** The browser asks a Cloud Function for a
+[signed V4 POST policy](yt-api-service/functions/src/index.ts), which binds the
+content type, caps the body at 250 MiB, and expires in 15 minutes. The file goes
+straight from the browser to Cloud Storage. No proxying, no server-side buffer of
+a quarter-gigabyte upload.
 
-### Video Storage (Cloud Storage)
+**Processing is exactly-once under an at-least-once transport.** Pub/Sub redelivers
+push messages after 600s, but a transcode may take much longer. The processor
+resolves this with a
+[Firestore transaction](video-processing-service/src/firestore.ts) that issues a
+claim token with a 65-minute lease. A duplicate delivery for a video already
+processed returns `204` (acknowledge, do nothing); one that is actively leased
+returns `503` with `Retry-After`; a claim whose lease has expired is taken over.
+Completion is a compare-and-set on the token, so a worker whose lease expired
+mid-transcode cannot overwrite the result of the worker that replaced it.
 
-Google Cloud Storage will be used to host the raw and processed videos. This is a simple, scalable, and cost effective solution for storing and serving large files.
+**A malformed message is acknowledged, not retried.** A push message that cannot
+possibly become valid — bad base64, wrong bucket, an unparseable object name —
+returns `204` after logging. Returning an error would make it a poison message
+that consumes the subscription forever.
 
-### Video Upload Events (Cloud Pub/Sub)
+**One decode, N encodes.** The transcoder
+[probes the source height first](video-processing-service/src/storage.ts) and
+emits only renditions the source can actually support, so a 360p upload is never
+upscaled to 720p. The renditions it does emit come out of a single `ffmpeg`
+invocation using `-filter_complex` with `split`, so the source is decoded once
+rather than once per rendition. `ffmpeg` is invoked via `execFile` with a fixed
+argument array — never a shell.
 
-When a video is uploaded, we will publish a message to a Cloud Pub/Sub topic. This will allow us to add a durability layer for video upload events and process videos asynchronously.
+**The upload contract lives in one place.** The 250 MiB cap, the extension
+allowlist, the content-type map, and the `u~<base64url uid>~<ms>~<uuidv4>.<ext>`
+filename grammar are defined once in [`packages/contract`](packages/contract) and
+imported by all three services. They used to be redeclared independently in four
+places across three independently-deployed services, which meant changing the
+size cap took four coordinated edits.
 
-### Video Processing Workers (Cloud Run)
+**Nothing leaks from the feed.** `toPublicVideo` is an explicit allowlist, so
+`uid`, `claimToken`, and `status` cannot reach a client even if a new field is
+added to the document later.
 
-When a video upload event is published, a video processing worker will receive a message from Pub/Sub and transcode the video. For transcoding the video we will use [ffmpeg](https://ffmpeg.org/), which is a popular open source tool for video processing and it's widely used in industry (including at YouTube).
+---
 
-The nature of video processing can lead to inconsistent workloads, so we will use Cloud Run to scale up and down as needed. Processed videos will be uploaded back to Cloud Storage.
+## Architecture
 
-### Video Metadata (Firestore)
+![System design](docs/system-design.jpg)
 
-After a video is processed, we will store the metadata in Firestore. This will allow us to display processed videos in the web client along with other relevant info (e.g. title, description, etc).
+```
+browser ──1── generateUploadUrl (Cloud Function)  ── signed POST policy
+   │                                                       │
+   └──2── signed multipart POST ──▶ redd-raw-videos (GCS) ◀──┘
+                              │
+                              3  object.finalize
+                              ▼
+                        Pub/Sub topic
+                              │
+                              4  push (OIDC)
+                              ▼
+              video-processing-service (Cloud Run)
+                    claim ─▶ ffprobe ─▶ ffmpeg ─▶ upload ─▶ complete
+                              │                       │
+                              ▼                       ▼
+                        Firestore videos      redd-processed-videos (GCS)
+                              │
+                              5  getVideos (Cloud Function, paginated)
+                              ▼
+                    yt-web-client (Next.js, server-rendered)
+```
 
-### Video API (Firebase Functions)
+Full detail, including the failure modes each design decision addresses, is in
+[`docs/architecture.md`](docs/architecture.md).
 
-We will use Firebase Functions to build a simple API that will allow users to upload videos and retrieve video metadata. This can easily be extended to support additional Create, Read, Update, Delete (CRUD) operations.
+### Repository layout
 
-### Web Client (Next.js / Cloud Run)
+| Path                                                   | What it is                                                                                                             |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| [`packages/contract`](packages/contract)               | Upload/naming/rendition contract shared by every service. 100% statement coverage.                                     |
+| [`yt-web-client`](yt-web-client)                       | Next.js 16 App Router front end. Server-rendered feed and watch pages, client islands for auth, upload, and playback.  |
+| [`yt-api-service`](yt-api-service)                     | Firebase Functions: signed upload policies, the paginated public feed, and user creation. Firestore and Storage rules. |
+| [`video-processing-service`](video-processing-service) | Cloud Run worker: claims a video, transcodes it with ffmpeg, uploads renditions, releases the claim.                   |
+| [`utils`](utils)                                       | Bucket CORS and lifecycle policies.                                                                                    |
 
-We will use Next.js to build a simple web client that will allow users to sign in and upload videos. The web client will be hosted on Cloud Run.
+It is an npm workspace with a single root lockfile, so every package agrees on
+one version of TypeScript, ESLint, Vitest, and Prettier.
 
-### Authentication (Firebase Auth)
+---
 
-We will use Firebase Auth to handle user authentication. This will allow us to easily integrate with Google Sign In.
+## Tech stack
 
-## Detailed Design
+| Layer       | Choice                                                    |
+| ----------- | --------------------------------------------------------- |
+| Runtime     | Node 24 (Active LTS)                                      |
+| Language    | TypeScript 6, `strict`, no `any`                          |
+| Front end   | Next.js 16 (App Router), React 19                         |
+| Styling     | CSS Modules + custom properties. No framework, no UI kit. |
+| Auth        | Firebase Auth (Google)                                    |
+| Data        | Cloud Firestore                                           |
+| Storage     | Cloud Storage, signed V4 POST policies                    |
+| Events      | Pub/Sub push with OIDC                                    |
+| Compute     | Cloud Run, Firebase Functions v2                          |
+| Transcoding | ffmpeg / ffprobe, invoked shell-free                      |
+| Tests       | Vitest 4, Testing Library, supertest                      |
+| Lint/format | ESLint 9 (flat, type-aware), Prettier 3                   |
 
-### 1. User Sign Up
-Users can sign up using their Google account and this easily handled by Firebase Auth. A user record will be created including a unique auto-generated ID for the user, as well as the user's email address.
+---
 
-For us to include additional info about the user we will create a Firestore document for each user, which will be apart of the `users` collection. This will allow us to store additional info about the user (e.g. name, profile picture, etc).
+## Tests
 
-Firebase Auth is mainly integrated into client code, which in our case will be within our Next.js app. While it's possible to trigger a user document creation directly from the client (after a new user signs up), this approach has some error prone edge cases.
+255 tests, all thresholds enforced in CI — a drop below them fails the build.
 
-What if there is an network issue or the user's browser crashes right after the user signs up but before the user document is created?
+| Workspace                  | Tests | Statements | Branches | Functions | Lines |
+| -------------------------- | ----: | ---------: | -------: | --------: | ----: |
+| `@yt/contract`             |    94 |       100% |    95.8% |      100% |  100% |
+| `@yt/api-service`          |    26 |      96.7% |    92.2% |      100% | 96.7% |
+| `video-processing-service` |    48 |      98.9% |    94.7% |      100% | 98.9% |
+| `yt-web-client`            |    87 |      93.0% |    88.3% |     86.0% | 93.3% |
 
-Fortunately, Firebase Auth provides [triggers](https://firebase.google.com/docs/functions/auth-events) so that we don't have to rely on the client for this operation. We can just trigger a Firebase Function (i.e. a server-side endpoint) to create the user document whenever a new user is created.
+The processor's suite includes integration tests over the real Express app with
+every dependency injected, covering duplicate delivery, lease contention,
+oversized and malformed bodies, ffmpeg failure, and the ordering guarantee that
+temporary files are cleaned up _before_ the response is sent.
 
-### 2. Video Upload
-Ideally, we should only allow authenticated users to upload videos. This will allow us to associate the uploaded video with the user who uploaded it. In the future this could also allow us to enforce quotas on video uploads (e.g. 10 videos per day).
+CI additionally builds both container images and asserts each one runs as a
+non-root user and answers its health check.
 
-While we could allow users to upload videos directly to a server we manage ourselves, it's more simple to use a service like Google Cloud Storage, which is specifically designed for arbitrarily large files like videos.
+---
 
-To prevent unauthorized uploads, an authenticated Firebase callable generates a
-short-lived signed POST policy. The browser can then upload directly to Cloud
-Storage without receiving server credentials.
+## Design
 
-> Note: We invoke this function only after the user selects a video because the
-> signed policy binds the extension, content type, and upload-size limit.
+The interface is built around making the pipeline legible. A video is not simply
+absent until it is ready — it moves through **uploaded → developing → ready**,
+which are the states the backend really records, and the feed and the upload
+dialog both show that progression.
 
-The callable returns a signed V4 POST policy that the client uses to upload
-directly to the private raw-video bucket. The policy enforces the supported
-content type and a 250 MiB maximum object size.
+- Design tokens for colour, type, space, and motion; every colour is assigned a
+  single job (brand, in-flight, ready, failed) rather than used decoratively.
+- Light and dark themes with an explicit toggle layered over
+  `prefers-color-scheme`, applied before first paint so there is no flash.
+- WCAG AA contrast throughout, one focus treatment applied globally, full
+  keyboard operability, `prefers-reduced-motion` respected.
+- Feed and watch pages are server components, so markup arrives complete and
+  each page carries its own title, description, canonical URL, and `VideoObject`
+  JSON-LD. The Firebase auth SDK is dynamically imported and never downloaded by
+  a visitor who only watches.
 
-### 3. Video Processing
-We'd like to process videos as soon as they come in, but it's possible that we could receive a large number of uploads at once which we can't immediately process. To solve this problem we will introduce a message queue to our system - Cloud Pub/Sub.
+---
 
-This provides many benefits:
+## Security posture
 
-1. When a video is uploaded to Cloud Storage, we can publish a message to a Pub/Sub topic. This will allow us to decouple the video upload from the video processing.
-2. We will use a Pub/Sub subscriptions to [push](https://cloud.google.com/pubsub/docs/push) messages to our video processing workers. In the future we can add additional subscriptions to fan-out these messages, e.g. for analytics.
-3. If the workers don't have enough capacity to process all the messages, Pub/Sub will automatically buffer the messages for us. This will allow us to scale our workers up and down as needed.
+- Firestore and Storage rules deny all client SDK access; the collections are
+  reachable only through the Admin SDK inside Cloud Functions and the processor.
+  Rules and indexes are version-controlled here, not console-only.
+- Uploads are bound by a short-lived signed policy with content-type and size
+  conditions enforced by Cloud Storage itself.
+- The processing endpoint expects a Pub/Sub push subscription authenticated with
+  an OIDC service account holding only `roles/run.invoker`.
+- No secrets in the repository. The Firebase _web_ config is public by design and
+  read from the environment; service-account keys are gitignored everywhere.
 
+Reporting and the current advisory exceptions are in [SECURITY.md](SECURITY.md).
 
-After a video is processed, we will upload it to a public Cloud Storage bucket. We will also store the video metadata in Firestore, including the video's processing status. This will allow us to display the processed videos in the web client.
+---
 
-There are some noteworthy limitations with this approach, such as:
+## Licence
 
-- A Cloud Run request has a max timeout of 3600 seconds
-- Pub/Sub will redeliver a message after at most 600 seconds, closing the previous HTTP connection
-- We don't check for illegal content within videos
-
-## References
-- Firebase Auth: https://firebase.google.com/docs/auth
-- Cloud Storage Signed URLs: https://cloud.google.com/storage/docs/access-control/signed-urls
-- Pub/Sub Push subscriptions: https://cloud.google.com/pubsub/docs/push
-- Using Pub/Sub with Cloud Storage: https://cloud.google.com/storage/docs/pubsub-notifications
-- Using Pub/Sub with Cloud Run: https://cloud.google.com/run/docs/tutorials/pubsub
+ISC. `docs/system-design.jpg` and the sample clips under
+`yt-web-client/public/samples` are generated assets included for the demo.

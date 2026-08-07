@@ -1,6 +1,11 @@
 [
   {
-    "origin": ["*"],
+    "origin": [
+      "https://yt-web-client-rwmzir44wa-uc.a.run.app",
+      "https://redd-2aa7b.web.app",
+      "https://redd-2aa7b.firebaseapp.com",
+      "http://localhost:3000"
+    ],
     "responseHeader": ["Content-Type"],
     "method": ["POST"],
     "maxAgeSeconds": 3600

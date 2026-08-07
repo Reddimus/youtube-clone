@@ -1,0 +1,12 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Raw uploads use short-lived signed POST policies and processed videos are
+    // served from their public storage.googleapis.com URLs. Neither flow uses
+    // the Firebase Storage client SDK, so all client SDK access stays disabled.
+    match /{object=**} {
+      allow read, write: if false;
+    }
+  }
+}

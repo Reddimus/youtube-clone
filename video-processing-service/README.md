@@ -1,96 +1,79 @@
-# Video Processing Service:
+# video-processing-service
 
-The Video Processing Service is a core component of the YouTube clone project, designed to handle all aspects of video processing with efficiency and scalability. This service is built on Node.js and Express.js for server-side logic, the FFmpeg command-line tool for video processing, and a suite of Google Cloud services for data management and inter-service communication.
-
-## Key Features and Technologies:
-
-- **Node.js and Express.js**: At the heart of the service is Node.js, providing the runtime environment for executing JavaScript on the server side. Express.js, a minimal and flexible Node.js web application framework, is used to handle HTTP requests, making the creation of API endpoints straightforward and efficient.
-
-- **FFmpeg**: The service invokes FFmpeg directly with a fixed argument list
-  (without a shell) to transcode uploaded videos to 360p MP4 output.
-
-- **TypeScript**: The entire codebase is written in TypeScript, a superset of JavaScript that adds static types. TypeScript's compile-time type checking enhances code quality and maintainability, making the development process more robust and error-free.
-
-- **Google Cloud Services**:
-  - **Google Cloud Storage**: For robust and scalable file storage, the service leverages Google Cloud Storage. It provides a secure and efficient way to store raw and processed videos, ensuring high availability and global access.
-  - **Google Cloud Pub/Sub**: To facilitate reliable inter-service messaging, Google Cloud Pub/Sub is used. This allows for decoupled communication between services, enabling scalable and maintainable architectures.
-  - **Firestore and Firebase Authentication**: For storing user data and managing user authentication, Firestore and Firebase Authentication are integrated. These services provide a comprehensive solution for data storage and secure user authentication.
-
-- **Docker and Google Cloud Run**: The service is containerized using Docker, ensuring consistency across development, testing, and production environments. Deployment is handled through Google Cloud Run, which offers a fully managed platform for running containerized applications. This setup guarantees a scalable and isolated environment, capable of handling the demands of video processing tasks with ease.
-
-- **Development Tools**:
-  - **Docker**: Used for creating containerized versions of the service, making it easy to deploy and scale across any environment.
-  - **npm**: As the package manager for Node.js, npm is used to manage the project's dependencies.
-  - **TypeScript Compiler (tsc)**: Converts TypeScript code into JavaScript, ensuring compatibility with the Node.js runtime.
-  - **ts-node**: A tool for executing TypeScript directly, used during development for running scripts.
-
-This Video Processing Service is designed with scalability, performance, and reliability in mind, utilizing the latest in web technologies and cloud infrastructure to provide a seamless video processing experience.
-
-## Setup guide:
-
-### Prerequisites:
-1. **Make sure you are in the `video-processing-service` directory**:
-    ```bash
-    cd video-processing-service
-    ```
-2. **Install Node.js 22 and npm dependencies**:
-    ```bash
-    npm ci
-    ```
-
-### Create a Google account and Firebase/Google cloud account
-1. Sign into [Firebase](https://firebase.google.com/) and click go to the `Console`. You can view your Firebase projects here. If you don't have access to this `YouTube Clone` project, you request access from the project owner.
-2. Sign into [Google Cloud](https://cloud.google.com/). Go to the `Cloud Console`. You can view your Google Cloud projects here. If you don't have access to this `YouTube Clone` project, you request access from the project owner.
-
-### Install `gcloud` and `gsutil` CLI tools.
-1. Follow the instructions [here](https://cloud.google.com/sdk/docs/install).
-2. Then Make sure to authentication with your account and set your project:
-    ```bash
-    gcloud auth login # Copy the output url and paste it into your browser
-
-    gcloud config set project <PROJECT_ID>
-    ```
-
-### (Optional) Update gcloud components
-```bash
-gcloud components update
-```
-
-That's it! You have successfully set up the video processing service folder for development.
-
-## Build and push Docker image to Google Artifact Registry
-
-1. **Build the Docker image**:
-    ```bash
-    docker build -t us-central1-docker.pkg.dev/<PROJECT_ID>/video-processor/video-processor .
-    ```
-2. **Push the Docker image to Google Artifact Registry**:
-    ```bash
-    docker push us-central1-docker.pkg.dev/<PROJECT_ID>/video-processor/video-processor
-    ```
-3. **Deploy the Docker image to Google Cloud Run**:
-    ```bash
-    # Deploy container to cloud run
-    gcloud run deploy video-processor --image us-central1-docker.pkg.dev/<PROJECT_ID>/video-processor/video-processor \
-    --region=us-central1 \
-    --platform managed \
-    --no-allow-unauthenticated \
-    --service-account=<PROCESSOR_SERVICE_ACCOUNT> \
-    --timeout=3600 \
-    --memory=2Gi \
-    --cpu=1 \
-    --min-instances=0 \
-    --max-instances=1
-    ```
-
-Keep this service private. Configure the Pub/Sub push subscription to use an
-OIDC service account with only `roles/run.invoker` on this service. Do not grant
-anonymous invocation; the HTTP handler assumes Cloud Run has authenticated the
-Pub/Sub caller.
-
-Apply the repository's lifecycle policy to the private raw-video bucket so raw
-uploads, including failed jobs, are removed after one day:
+The Cloud Run worker. Receives a Pub/Sub push when a raw upload lands, claims
+the video, transcodes it into a rendition ladder, uploads the outputs, and
+releases the claim.
 
 ```bash
-gsutil lifecycle set ../utils/raw-video-lifecycle.json gs://<RAW_VIDEO_BUCKET>
+npm run build -w video-processing-service
+npm run serve -w video-processing-service   # needs ffmpeg + ffprobe on PATH
 ```
+
+## Endpoints
+
+| Method | Path             | Behaviour             |
+| ------ | ---------------- | --------------------- |
+| `GET`  | `/healthz`       | `200 {"status":"ok"}` |
+| `POST` | `/process-video` | Pub/Sub push handler  |
+
+### Response codes and why
+
+| Code                      | When                                                         | Reasoning                                                                                                      |
+| ------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `204`                     | Success, or already processed, or the message is unparseable | Acknowledge. A malformed message can never become valid, so retrying it forever would starve the subscription. |
+| `503` + `Retry-After: 30` | Another worker holds a live claim                            | Ask Pub/Sub to come back rather than duplicating the work.                                                     |
+| `500`                     | Transient failure — ffmpeg crashed, storage unreachable      | Genuinely worth retrying.                                                                                      |
+
+## Exactly-once processing
+
+Pub/Sub redelivers a push that is not acknowledged within the ack deadline, and a
+transcode routinely outlives that deadline. `claimVideo` resolves the race in a
+Firestore transaction by issuing a claim token with a **65-minute lease** —
+deliberately longer than the 55-minute ffmpeg timeout, so a worker cannot lose
+its claim while still legitimately working.
+
+Completion is a compare-and-set on that token: a worker whose lease expired
+mid-transcode cannot overwrite the result of the worker that replaced it.
+
+Temporary files are cleaned up in a `finally` block that is awaited **before**
+the response is written, because Cloud Run may freeze the instance immediately
+after a response and cleanup scheduled afterwards would simply never run. There
+is a test asserting that ordering.
+
+## Transcoding
+
+`ffprobe` reads the source height first, and only renditions at or below it are
+produced — a 360p source is never upscaled. The selected renditions come out of a
+single `ffmpeg` invocation using `-filter_complex` with `split`, so the source is
+decoded once and encoded N times rather than decoded N times.
+
+`ffmpeg` is always invoked through `execFile` with a fixed argument array, never
+a shell, with a bounded output buffer and a wall-clock timeout.
+
+## Configuration
+
+See `.env.example`. `PORT`, `RAW_VIDEO_BUCKET`, and `PROCESSED_VIDEO_BUCKET` are
+read **only** in `src/index.ts` and injected downward — `src/storage.ts` exposes
+a factory rather than reading the environment at module scope, which is what
+makes it testable and keeps one source of truth per setting.
+
+Credentials come from Application Default Credentials.
+
+## Container
+
+Builds from the **repository root**:
+
+```bash
+docker build -f video-processing-service/Dockerfile .
+```
+
+The image installs `ffmpeg` (which provides `ffprobe`), runs as uid 1000, and
+carries `packages/contract/dist` — unlike the web client, this service consumes
+the contract as a real runtime dependency rather than bundling it.
+
+## Deployment
+
+`--no-allow-unauthenticated` is mandatory. The endpoint must be reachable only
+by the Pub/Sub push subscription, using an OIDC service account holding
+`roles/run.invoker` on this service and nothing else. Full command in
+[`docs/setup.md`](../docs/setup.md).

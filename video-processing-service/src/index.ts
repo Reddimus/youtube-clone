@@ -1,14 +1,12 @@
 import { createProcessingApp } from "./app";
-import { claimVideo, completeVideo, failVideo } from "./firestore";
-import { defaultRawVideoBucketName } from "./pubsub";
 import {
-  convertVideo,
-  deleteProcessedVideo,
-  deleteRawVideo,
-  downloadRawVideo,
-  setupDirectories,
-  uploadProcessedVideo,
-} from "./storage";
+  claimVideo,
+  completeVideo,
+  failVideo,
+  ownsVideoClaim,
+} from "./firestore";
+import { defaultRawVideoBucketName } from "./pubsub";
+import { createVideoStorage } from "./storage";
 
 async function start(): Promise<void> {
   const port = Number(process.env.PORT ?? 3000);
@@ -16,23 +14,32 @@ async function start(): Promise<void> {
     throw new Error("PORT must be an integer between 1 and 65535.");
   }
 
-  await setupDirectories();
+  const rawVideoBucketName =
+    process.env.RAW_VIDEO_BUCKET ?? defaultRawVideoBucketName;
+  const videoStorage = createVideoStorage({
+    processedVideoBucketName:
+      process.env.PROCESSED_VIDEO_BUCKET ?? "redd-processed-videos",
+    rawVideoBucketName,
+    workDir: process.env.WORK_DIR ?? process.cwd(),
+  });
+  await videoStorage.setupDirectories();
 
   const app = createProcessingApp({
-    rawVideoBucketName:
-      process.env.RAW_VIDEO_BUCKET ?? defaultRawVideoBucketName,
+    rawVideoBucketName,
     claimVideo,
     completeVideo,
     failVideo,
-    downloadRawVideo,
-    convertVideo,
-    uploadProcessedVideo,
-    deleteRawVideo,
-    deleteProcessedVideo,
+    ownsVideoClaim,
+    convertVideo: videoStorage.convertVideo,
+    deletePublishedVideo: videoStorage.deletePublishedVideo,
+    deleteProcessedVideo: videoStorage.deleteProcessedVideo,
+    deleteRawVideo: videoStorage.deleteRawVideo,
+    downloadRawVideo: videoStorage.downloadRawVideo,
+    uploadProcessedVideo: videoStorage.uploadProcessedVideo,
   });
 
   app.listen(port, () => {
-    console.log(`Video processing service listening on port ${port}.`);
+    console.info(`Video processing service listening on port ${port}.`);
   });
 }
 

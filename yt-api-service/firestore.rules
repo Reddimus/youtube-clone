@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Cloud Functions and the Cloud Run processor use the privileged Admin SDK.
+    // Public video data is exposed only through the getVideos callable, so no
+    // browser or mobile Firebase client may read or write these collections.
+    match /videos/{videoId} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

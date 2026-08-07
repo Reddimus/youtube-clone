@@ -1,40 +1,32 @@
 {
   "name": "video-processing-service",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
   "private": true,
-  "packageManager": "npm@10.9.8",
+  "description": "Cloud Run worker that transcodes uploaded videos into an HLS-ready rendition ladder.",
+  "license": "ISC",
+  "main": "dist/index.js",
+  "engines": {
+    "node": "24"
+  },
   "scripts": {
-    "start": "ts-node src/index.ts",
-    "build": "tsc",
+    "start": "node --experimental-strip-types src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
     "serve": "node dist/index.js",
-    "type-check": "tsc -p tsconfig.eslint.json --noEmit",
+    "type-check": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "check": "npm run type-check && npm run lint && npm run test && npm run build"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@google-cloud/storage": "^7.21.0",
+    "@yt/contract": "*",
     "express": "^5.2.1",
     "firebase-admin": "^14.2.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
-    "@types/node": "^22.20.1",
     "@types/supertest": "^7.2.1",
-    "@typescript-eslint/eslint-plugin": "^8.66.0",
-    "@typescript-eslint/parser": "^8.66.0",
-    "eslint": "^9.39.5",
-    "supertest": "^7.2.2",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.10"
-  },
-  "engines": {
-    "node": "22"
+    "supertest": "^7.2.2"
   }
 }
