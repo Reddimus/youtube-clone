@@ -27,6 +27,9 @@ export function UploadDialog() {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  /** Monotonic attempt counter; a state write from a superseded attempt is dropped. */
+  const attemptRef = useRef(0);
+  const submittingRef = useRef(false);
   const router = useRouter();
   const { notify } = useToast();
   const titleId = useId();
@@ -60,6 +63,9 @@ export function UploadDialog() {
   }, []);
 
   const close = useCallback(() => {
+    // Invalidating the attempt is what stops a superseded upload from writing
+    // back into this dialog's state after it has been reused.
+    attemptRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
     dialogRef.current?.close();
@@ -78,6 +84,16 @@ export function UploadDialog() {
       dialog.showModal();
     }
   }, [open]);
+
+  useEffect(
+    () => () => {
+      // Signing out unmounts this dialog. Without aborting here the upload
+      // would keep running with no progress indicator and no way to cancel it.
+      attemptRef.current += 1;
+      abortRef.current?.abort();
+    },
+    [],
+  );
 
   const acceptFile = (candidate: File | undefined) => {
     if (!candidate) {
@@ -105,21 +121,41 @@ export function UploadDialog() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!file || busy) {
+    // A ref, not the `busy` state: two submit events can be dispatched before
+    // React re-renders, and state would not have caught up in time.
+    if (!file || submittingRef.current) {
       return;
     }
+    submittingRef.current = true;
 
     const controller = new AbortController();
+    const attempt = (attemptRef.current += 1);
+    // Every state write is gated on still being the current attempt, so a
+    // cancelled upload can never clobber the one that replaced it.
+    const isCurrent = () => attemptRef.current === attempt;
+
     abortRef.current = controller;
     setPhase("uploading");
     setProgress(0);
 
     try {
-      const result = await uploadVideo(
+      await uploadVideo(
         file,
         { title, description },
-        { onProgress: setProgress, signal: controller.signal },
+        {
+          onProgress: (fraction) => {
+            if (isCurrent()) {
+              setProgress(fraction);
+            }
+          },
+          signal: controller.signal,
+        },
       );
+
+      if (!isCurrent()) {
+        return;
+      }
+
       setPhase("developing");
       notify(
         "Upload complete. Redd is developing your video — it will appear in the feed when it is ready.",
@@ -129,19 +165,22 @@ export function UploadDialog() {
       // state; the new video shows up as soon as the transcode finishes.
       router.refresh();
       window.setTimeout(() => {
-        if (abortRef.current === controller) {
+        if (isCurrent()) {
           close();
         }
       }, 2_500);
-      void result;
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        setPhase("idle");
-        setProgress(0);
+      if (!isCurrent()) {
         return;
       }
+
       setPhase("idle");
       setProgress(0);
+
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+
       notify(
         error instanceof Error
           ? error.message
@@ -149,6 +188,7 @@ export function UploadDialog() {
         "error",
       );
     } finally {
+      submittingRef.current = false;
       if (abortRef.current === controller) {
         abortRef.current = null;
       }

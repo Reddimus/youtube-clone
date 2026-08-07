@@ -1,5 +1,10 @@
 import { createProcessingApp } from "./app";
-import { claimVideo, completeVideo, failVideo } from "./firestore";
+import {
+  claimVideo,
+  completeVideo,
+  failVideo,
+  ownsVideoClaim,
+} from "./firestore";
 import { defaultRawVideoBucketName } from "./pubsub";
 import { createVideoStorage } from "./storage";
 
@@ -24,7 +29,9 @@ async function start(): Promise<void> {
     claimVideo,
     completeVideo,
     failVideo,
+    ownsVideoClaim,
     convertVideo: videoStorage.convertVideo,
+    deletePublishedVideo: videoStorage.deletePublishedVideo,
     deleteProcessedVideo: videoStorage.deleteProcessedVideo,
     deleteRawVideo: videoStorage.deleteRawVideo,
     downloadRawVideo: videoStorage.downloadRawVideo,

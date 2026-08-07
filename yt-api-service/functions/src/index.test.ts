@@ -28,7 +28,12 @@ const apiMocks = vi.hoisted(() => {
   }
 
   const documentSet = vi.fn().mockResolvedValue(undefined);
-  const document = vi.fn(() => ({ set: documentSet }));
+  const documentGet = vi.fn().mockResolvedValue({
+    data: () => undefined,
+    exists: false,
+    id: "missing-video",
+  });
+  const document = vi.fn(() => ({ get: documentGet, set: documentSet }));
   const query = {
     get: vi.fn(() => Promise.resolve({ docs: queryResults.shift() ?? [] })),
     limit: vi.fn(),
@@ -56,6 +61,7 @@ const apiMocks = vi.hoisted(() => {
     MockTimestamp,
     collection,
     document,
+    documentGet,
     documentSet,
     generateSignedPostPolicyV4,
     loggerInfo,
@@ -90,10 +96,11 @@ vi.mock("firebase-admin/firestore", () => ({
 }));
 vi.mock("firebase-functions/logger", () => ({ info: apiMocks.loggerInfo }));
 
-import { createUser, generateUploadUrl, getVideos } from "./index";
+import { createUser, generateUploadUrl, getVideo, getVideos } from "./index";
 
 type UploadRequest = Parameters<typeof generateUploadUrl.run>[0];
 type VideoFeedRequest = Parameters<typeof getVideos.run>[0];
+type VideoRequest = Parameters<typeof getVideo.run>[0];
 
 function uploadRequest(data: unknown, uid?: string): UploadRequest {
   return {
@@ -104,6 +111,10 @@ function uploadRequest(data: unknown, uid?: string): UploadRequest {
 
 function videoFeedRequest(data: unknown): VideoFeedRequest {
   return { data } as VideoFeedRequest;
+}
+
+function videoRequest(data: unknown): VideoRequest {
+  return { data } as VideoRequest;
 }
 
 function storedDocument(
@@ -126,6 +137,11 @@ beforeEach(() => {
       url: "https://storage.example/upload",
     },
   ]);
+  apiMocks.documentGet.mockResolvedValue({
+    data: () => undefined,
+    exists: false,
+    id: "missing-video",
+  });
 });
 
 describe("generateUploadUrl", () => {
@@ -402,6 +418,46 @@ describe("getVideos", () => {
     expect(apiMocks.query.startAfter).toHaveBeenCalledWith("modern-49");
   });
 
+  it("bounds forged legacy cursors and returns a cursor after the scan cap", async () => {
+    const modernBatches = Array.from({ length: 5 }, (_batch, batchIndex) =>
+      Array.from({ length: 50 }, (_document, documentIndex) =>
+        storedDocument(`modern-${batchIndex}-${documentIndex}`, {
+          status: "processed",
+          updatedAt: new apiMocks.MockTimestamp(documentIndex),
+        }),
+      ),
+    );
+    apiMocks.queueQueryResults(...modernBatches);
+    const forgedLegacyCursor = opaqueCursor({
+      afterId: null,
+      phase: "legacy",
+      version: 1,
+    });
+
+    const page = await getVideos.run(
+      videoFeedRequest({ cursor: forgedLegacyCursor, limit: 1 }),
+    );
+
+    expect(page.videos).toEqual([]);
+    expect(page.nextCursor).toEqual(expect.any(String));
+    expect(apiMocks.query.get).toHaveBeenCalledTimes(5);
+    expect(
+      JSON.parse(
+        Buffer.from(page.nextCursor ?? "", "base64url").toString("utf8"),
+      ),
+    ).toEqual({
+      afterId: "modern-4-49",
+      phase: "legacy",
+      version: 1,
+    });
+
+    apiMocks.queueQueryResults([]);
+    await getVideos.run(
+      videoFeedRequest({ cursor: page.nextCursor, limit: 1 }),
+    );
+    expect(apiMocks.query.startAfter).toHaveBeenLastCalledWith("modern-4-49");
+  });
+
   it("fails safely if an ordered document has no Timestamp", async () => {
     apiMocks.queueQueryResults([
       storedDocument("invalid-time", {
@@ -418,6 +474,62 @@ describe("getVideos", () => {
       getVideos.run(videoFeedRequest({ limit: 1 })),
     ).rejects.toMatchObject({ code: "internal" });
   });
+});
+
+describe("getVideo", () => {
+  const videoId = "user-1725000000000";
+
+  it("returns a projected processed video by ID", async () => {
+    apiMocks.documentGet.mockResolvedValue({
+      data: () => ({
+        claimToken: "private-token",
+        filename: "processed-user-1725000000000-360p.mp4",
+        renditions: ["360p", "unknown"],
+        status: "processed",
+        title: "Public title",
+        uid: "private-user",
+      }),
+      exists: true,
+      id: videoId,
+    });
+
+    await expect(getVideo.run(videoRequest({ id: videoId }))).resolves.toEqual({
+      filename: "processed-user-1725000000000-360p.mp4",
+      id: videoId,
+      renditions: ["360p"],
+      title: "Public title",
+      uploadedAt: 1_725_000_000_000,
+    });
+    expect(apiMocks.document).toHaveBeenCalledWith(videoId);
+  });
+
+  it.each([
+    [false, undefined],
+    [true, { status: "processing" }],
+  ])(
+    "returns null for missing and non-processed videos",
+    async (exists, data) => {
+      apiMocks.documentGet.mockResolvedValue({
+        data: () => data,
+        exists,
+        id: videoId,
+      });
+
+      await expect(
+        getVideo.run(videoRequest({ id: videoId })),
+      ).resolves.toBeNull();
+    },
+  );
+
+  it.each([undefined, 42, "../video", "video", "processed-user-1725000000000"])(
+    "rejects invalid shared-contract video ID %s",
+    async (id) => {
+      await expect(getVideo.run(videoRequest({ id }))).rejects.toMatchObject({
+        code: "invalid-argument",
+      });
+      expect(apiMocks.documentGet).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("createUser", () => {

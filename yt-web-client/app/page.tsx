@@ -26,8 +26,8 @@ export default async function HomePage({
       <header className={styles.intro}>
         <h1 className={styles.heading}>The reel</h1>
         <p className={styles.lede}>
-          Every upload is decoded once and developed into a 360p and 720p
-          rendition before it lands here.
+          Every upload is decoded once and developed into up to a 360p and a
+          720p rendition before it lands here. Nothing is ever upscaled.
         </p>
       </header>
 

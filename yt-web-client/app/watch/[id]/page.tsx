@@ -6,6 +6,7 @@ import { DevelopRail } from "../../components/develop-rail";
 import { VideoPlayer } from "../../components/video-player";
 import { videoSources } from "../../firebase/storage";
 import { formatDate, videoTitle } from "../../lib/format";
+import { toJsonLd } from "../../lib/json-ld";
 import { fetchVideo } from "../../lib/videos";
 import styles from "./page.module.css";
 
@@ -98,7 +99,9 @@ export default async function WatchPage({ params }: WatchPageProps) {
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
+            // toJsonLd, not JSON.stringify: the title and description are
+            // user-supplied and JSON.stringify does not escape `<`.
+            __html: toJsonLd({
               "@context": "https://schema.org",
               "@type": "VideoObject",
               name: title,

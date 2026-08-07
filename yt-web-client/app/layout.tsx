@@ -101,8 +101,9 @@ export default function RootLayout({
             </main>
             <footer className={styles.footer}>
               <p>
-                Redd develops every upload into a 360p and 720p rendition on
-                Cloud Run.
+                Redd develops every upload into up to a 360p and a 720p
+                rendition on Cloud Run — a source shorter than a rung only
+                produces the ones it can fill.
               </p>
             </footer>
           </div>

@@ -5,7 +5,11 @@ import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 
 import type { RenditionName } from "@yt/contract";
 
-import { uploadTimestamp, type VideoClaimResult } from "./claims";
+import {
+  uploadTimestamp,
+  type VideoClaimResult,
+  type VideoFailure,
+} from "./claims";
 
 const firebaseApp =
   getApps()[0] ?? initializeApp({ credential: applicationDefault() });
@@ -17,7 +21,21 @@ const claimLeaseMilliseconds = 65 * 60 * 1000;
 interface StoredVideo {
   claimToken?: string;
   claimedAt?: Timestamp;
+  permanent?: boolean;
   status?: "processing" | "processed" | "failed";
+}
+
+function hasLiveClaim(
+  video: StoredVideo | undefined,
+  claimToken: string,
+  now: Timestamp,
+): boolean {
+  return (
+    video?.status === "processing" &&
+    video.claimToken === claimToken &&
+    video.claimedAt instanceof Timestamp &&
+    now.toMillis() - video.claimedAt.toMillis() < claimLeaseMilliseconds
+  );
 }
 
 export async function claimVideo(
@@ -34,6 +52,9 @@ export async function claimVideo(
 
     if (video?.status === "processed") {
       return { status: "processed" };
+    }
+    if (video?.status === "failed" && video.permanent === true) {
+      return { status: "permanent-failure" };
     }
 
     if (video?.status === "processing") {
@@ -57,6 +78,8 @@ export async function claimVideo(
         status: "processing",
         claimToken,
         claimedAt: now,
+        permanent: FieldValue.delete(),
+        failureReason: FieldValue.delete(),
         updatedAt: now,
       },
       { merge: true },
@@ -64,6 +87,17 @@ export async function claimVideo(
 
     return { status: "claimed", token: claimToken };
   });
+}
+
+export async function ownsVideoClaim(
+  videoId: string,
+  claimToken: string,
+): Promise<boolean> {
+  const snapshot = await firestore
+    .collection(videoCollectionId)
+    .doc(videoId)
+    .get();
+  return hasLiveClaim(snapshot.data(), claimToken, Timestamp.now());
 }
 
 export async function completeVideo(
@@ -89,6 +123,8 @@ export async function completeVideo(
         renditions,
         claimToken: FieldValue.delete(),
         claimedAt: FieldValue.delete(),
+        permanent: FieldValue.delete(),
+        failureReason: FieldValue.delete(),
         updatedAt: Timestamp.now(),
       },
       { merge: true },
@@ -100,25 +136,29 @@ export async function completeVideo(
 export async function failVideo(
   videoId: string,
   claimToken: string,
-): Promise<void> {
+  failure: VideoFailure,
+): Promise<boolean> {
   const videoReference = firestore.collection(videoCollectionId).doc(videoId);
 
-  await firestore.runTransaction(async (transaction) => {
+  return firestore.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(videoReference);
     const video = snapshot.data() as StoredVideo | undefined;
     if (video?.claimToken !== claimToken || video.status !== "processing") {
-      return;
+      return false;
     }
 
     transaction.set(
       videoReference,
       {
         status: "failed",
+        permanent: failure.permanent,
+        failureReason: failure.reason,
         claimToken: FieldValue.delete(),
         claimedAt: FieldValue.delete(),
         updatedAt: Timestamp.now(),
       },
       { merge: true },
     );
+    return true;
   });
 }

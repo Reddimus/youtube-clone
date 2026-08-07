@@ -86,6 +86,19 @@ describe("parseRawVideoName", () => {
     });
   });
 
+  it.each([
+    "processed-uid123-1717171717171.mp4",
+    "Processed-uid123-1717171717171.mp4",
+    "PROCESSED-uid123-1717171717171.mp4",
+    "pRoCeSsEd-uid123-1717171717171.mp4",
+  ])("refuses to reprocess %j whatever its case", (name) => {
+    // The name patterns are case-insensitive, so this guard must be too —
+    // otherwise a mixed-case name satisfies both grammars at once.
+    expect(() => parseRawVideoName(name)).toThrow(
+      "Processed videos cannot be submitted for processing.",
+    );
+  });
+
   it("refuses to reprocess a processed object", () => {
     expect(() =>
       parseRawVideoName(`processed-uid123-${timestamp}.mp4`),

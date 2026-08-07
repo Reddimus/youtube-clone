@@ -97,7 +97,10 @@ export function parseRawVideoName(name: unknown): RawVideoName {
     throw new Error("The storage event is missing an object name.");
   }
 
-  if (name.startsWith("processed-")) {
+  // Case-insensitive to match the name patterns themselves. A case-sensitive
+  // check let `Processed-uid-1717171717171.mp4` satisfy both the raw and the
+  // processed grammars at once, defeating this guard.
+  if (/^processed-/i.test(name)) {
     throw new Error("Processed videos cannot be submitted for processing.");
   }
 

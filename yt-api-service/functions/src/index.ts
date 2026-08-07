@@ -31,6 +31,7 @@ const videoCollectionId = "videos";
 const defaultVideoLimit = 12;
 const maximumVideoLimit = 50;
 const legacyQueryBatchSize = 50;
+const maximumLegacyQueryBatches = 5;
 const cursorVersion = 1;
 const controlCharacterPattern = /\p{Cc}/u;
 
@@ -44,6 +45,10 @@ interface UploadRequestData {
 interface VideoFeedRequestData {
   cursor?: unknown;
   limit?: unknown;
+}
+
+interface VideoRequestData {
+  id?: unknown;
 }
 
 interface UpdatedCursor {
@@ -64,6 +69,11 @@ type VideoCursor = UpdatedCursor | LegacyCursor;
 interface VideoPage {
   nextCursor: string | null;
   videos: PublicVideo[];
+}
+
+interface LegacyDocumentPage {
+  documents: QueryDocumentSnapshot[];
+  resumeAfterId: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -241,11 +251,15 @@ async function getUpdatedDocuments(
 async function getLegacyDocuments(
   wantedCount: number,
   initialAfterId: string | null,
-): Promise<QueryDocumentSnapshot[]> {
+): Promise<LegacyDocumentPage> {
   const legacyDocuments: QueryDocumentSnapshot[] = [];
   let afterId = initialAfterId;
+  let batchesScanned = 0;
 
-  while (legacyDocuments.length < wantedCount) {
+  while (
+    legacyDocuments.length < wantedCount &&
+    batchesScanned < maximumLegacyQueryBatches
+  ) {
     let query: Query = firestore
       .collection(videoCollectionId)
       .where("status", "==", "processed")
@@ -255,6 +269,7 @@ async function getLegacyDocuments(
     }
 
     const documents = (await query.limit(legacyQueryBatchSize).get()).docs;
+    batchesScanned += 1;
     for (const document of documents) {
       if (!("updatedAt" in document.data())) {
         legacyDocuments.push(document);
@@ -265,7 +280,7 @@ async function getLegacyDocuments(
     }
 
     if (documents.length < legacyQueryBatchSize) {
-      break;
+      return { documents: legacyDocuments, resumeAfterId: null };
     }
     const lastDocument = documents.at(-1);
     if (!lastDocument) {
@@ -274,7 +289,14 @@ async function getLegacyDocuments(
     afterId = lastDocument.id;
   }
 
-  return legacyDocuments;
+  return {
+    documents: legacyDocuments,
+    resumeAfterId:
+      legacyDocuments.length < wantedCount &&
+      batchesScanned === maximumLegacyQueryBatches
+        ? afterId
+        : null,
+  };
 }
 
 export const createUser = authV1.user().onCreate(async (user) => {
@@ -340,6 +362,8 @@ export const generateUploadUrl = onCall(
         ],
       });
     const now = Timestamp.now();
+    // Production must expire abandoned `uploading` records with a Firestore TTL
+    // policy or a scheduled sweep after clients cancel or disappear mid-upload.
     await firestore
       .collection(videoCollectionId)
       .doc(videoId)
@@ -395,10 +419,11 @@ export const getVideos = onCall({ maxInstances: 1 }, async (request) => {
 
   const remaining = limit - updatedDocuments.length;
   const legacyAfterId = cursor?.phase === "legacy" ? cursor.afterId : null;
-  const legacyDocuments = await getLegacyDocuments(
+  const legacyPage = await getLegacyDocuments(
     Math.max(1, remaining + 1),
     legacyAfterId,
   );
+  const legacyDocuments = legacyPage.documents;
   const includedLegacyDocuments = legacyDocuments.slice(0, remaining);
   const documents = [...updatedDocuments, ...includedLegacyDocuments];
   let nextCursor: string | null = null;
@@ -410,10 +435,44 @@ export const getVideos = onCall({ maxInstances: 1 }, async (request) => {
       phase: "legacy",
       version: cursorVersion,
     });
+  } else if (legacyPage.resumeAfterId !== null) {
+    nextCursor = encodeCursor({
+      afterId: legacyPage.resumeAfterId,
+      phase: "legacy",
+      version: cursorVersion,
+    });
   }
 
   return {
     videos: toPublicProcessedVideos(documents),
     nextCursor,
   } satisfies VideoPage;
+});
+
+/** Returns one processed public video by its shared-contract video ID. */
+export const getVideo = onCall({ maxInstances: 1 }, async (request) => {
+  const data = (isRecord(request.data) ? request.data : {}) as VideoRequestData;
+  if (typeof data.id !== "string") {
+    throw new HttpsError("invalid-argument", "id is invalid.");
+  }
+
+  try {
+    const parsed = parseRawVideoName(`${data.id}.mp4`);
+    if (parsed.videoId !== data.id) {
+      throw new Error("The video ID did not round-trip.");
+    }
+  } catch {
+    throw new HttpsError("invalid-argument", "id is invalid.");
+  }
+
+  const snapshot = await firestore
+    .collection(videoCollectionId)
+    .doc(data.id)
+    .get();
+  const video = snapshot.data();
+  if (!snapshot.exists || video?.status !== "processed") {
+    return null;
+  }
+
+  return toPublicVideo(snapshot.id, video);
 });

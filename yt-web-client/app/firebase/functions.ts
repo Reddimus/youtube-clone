@@ -98,6 +98,12 @@ export async function uploadVideo(
     ...(description ? { description } : {}),
   });
 
+  // Cancellation during the callable round-trip has to be observed here too;
+  // otherwise an abandoned upload still proceeds to transfer the whole file.
+  if (options.signal?.aborted) {
+    throw new DOMException("Upload cancelled.", "AbortError");
+  }
+
   if (response.data.maxUploadBytes < file.size) {
     throw new Error("The video exceeds the server upload limit.");
   }

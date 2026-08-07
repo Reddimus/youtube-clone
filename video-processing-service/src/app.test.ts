@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createProcessingApp, type ProcessingDependencies } from "./app";
 import type { VideoOutputFile } from "./pubsub";
+import { PermanentProcessingError } from "./storage";
 
 const rawName = "user-1725000000000.mp4";
 const outputFileNames: VideoOutputFile[] = [
@@ -112,10 +113,12 @@ function dependencies(): ProcessingDependencies {
       token: "claim-token",
     }),
     completeVideo: vi.fn().mockResolvedValue(true),
-    failVideo: vi.fn().mockResolvedValue(undefined),
+    failVideo: vi.fn().mockResolvedValue(true),
+    ownsVideoClaim: vi.fn().mockResolvedValue(true),
     downloadRawVideo: vi.fn().mockResolvedValue(undefined),
     convertVideo: vi.fn().mockResolvedValue(outputFileNames),
     uploadProcessedVideo: vi.fn().mockResolvedValue(undefined),
+    deletePublishedVideo: vi.fn().mockResolvedValue(undefined),
     deleteRawVideo: vi.fn().mockResolvedValue(undefined),
     deleteProcessedVideo: vi.fn().mockResolvedValue(undefined),
   };
@@ -127,15 +130,21 @@ describe("createProcessingApp", () => {
     const response = await post(createProcessingApp(mocks), pubsubRequest());
 
     expect(response.status).toBe(204);
-    expect(mocks.convertVideo).toHaveBeenCalledWith(rawName, outputFileNames);
+    expect(mocks.convertVideo).toHaveBeenCalledWith(
+      rawName,
+      outputFileNames,
+      expect.objectContaining({ claimToken: "claim-token" }),
+    );
     expect(mocks.uploadProcessedVideo).toHaveBeenCalledTimes(2);
     expect(mocks.uploadProcessedVideo).toHaveBeenNthCalledWith(
       1,
       outputFileNames[0].fileName,
+      expect.objectContaining({ claimToken: "claim-token" }),
     );
     expect(mocks.uploadProcessedVideo).toHaveBeenNthCalledWith(
       2,
       outputFileNames[1].fileName,
+      expect.objectContaining({ claimToken: "claim-token" }),
     );
     expect(mocks.completeVideo).toHaveBeenCalledWith(
       "user-1725000000000",
@@ -143,8 +152,21 @@ describe("createProcessingApp", () => {
       outputFileNames[0].fileName,
       ["360p", "720p"],
     );
+    expect(mocks.ownsVideoClaim).toHaveBeenCalledTimes(2);
     expect(mocks.deleteRawVideo).toHaveBeenCalledOnce();
     expect(mocks.deleteProcessedVideo).toHaveBeenCalledTimes(2);
+  });
+
+  it("acknowledges a previously recorded permanent failure", async () => {
+    const mocks = dependencies();
+    vi.mocked(mocks.claimVideo).mockResolvedValue({
+      status: "permanent-failure",
+    });
+
+    const response = await post(createProcessingApp(mocks), pubsubRequest());
+
+    expect(response.status).toBe(204);
+    expect(mocks.downloadRawVideo).not.toHaveBeenCalled();
   });
 
   it("acknowledges a duplicate without downloading it", async () => {
@@ -199,9 +221,32 @@ describe("createProcessingApp", () => {
     expect(mocks.claimVideo).not.toHaveBeenCalled();
   });
 
-  it("marks a failed claim and cleans up every candidate file", async () => {
+  it("records a permanent media failure and acknowledges Pub/Sub", async () => {
     const mocks = dependencies();
-    vi.mocked(mocks.convertVideo).mockRejectedValue(new Error("ffmpeg error"));
+    vi.mocked(mocks.convertVideo).mockRejectedValue(
+      new PermanentProcessingError("FFmpeg rejected the input video."),
+    );
+
+    const response = await post(createProcessingApp(mocks), pubsubRequest());
+
+    expect(response.status).toBe(204);
+    expect(mocks.failVideo).toHaveBeenCalledWith(
+      "user-1725000000000",
+      "claim-token",
+      {
+        permanent: true,
+        reason: "FFmpeg rejected the input video.",
+      },
+    );
+    expect(mocks.deleteRawVideo).toHaveBeenCalledOnce();
+    expect(mocks.deleteProcessedVideo).toHaveBeenCalledTimes(2);
+  });
+
+  it("records a transient infrastructure failure and requests a retry", async () => {
+    const mocks = dependencies();
+    vi.mocked(mocks.downloadRawVideo).mockRejectedValue(
+      new Error("storage unavailable"),
+    );
 
     const response = await post(createProcessingApp(mocks), pubsubRequest());
 
@@ -209,9 +254,92 @@ describe("createProcessingApp", () => {
     expect(mocks.failVideo).toHaveBeenCalledWith(
       "user-1725000000000",
       "claim-token",
+      {
+        permanent: false,
+        reason: "A transient video processing failure occurred.",
+      },
     );
-    expect(mocks.deleteRawVideo).toHaveBeenCalledOnce();
-    expect(mocks.deleteProcessedVideo).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the lease in place when the whole-attempt deadline expires", async () => {
+    const mocks = dependencies();
+    let now = 1_800_000_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.mocked(mocks.downloadRawVideo).mockImplementation(() => {
+      now += 55 * 60 * 1_000 + 1;
+      return Promise.resolve();
+    });
+
+    const response = await post(createProcessingApp(mocks), pubsubRequest());
+    nowSpy.mockRestore();
+
+    expect(response.status).toBe(500);
+    expect(mocks.convertVideo).not.toHaveBeenCalled();
+    expect(mocks.deleteRawVideo).not.toHaveBeenCalled();
+    expect(mocks.failVideo).not.toHaveBeenCalled();
+  });
+
+  it("stops before uploads when the claim is no longer owned", async () => {
+    const mocks = dependencies();
+    vi.mocked(mocks.ownsVideoClaim).mockResolvedValue(false);
+
+    const response = await post(createProcessingApp(mocks), pubsubRequest());
+
+    expect(response.status).toBe(500);
+    expect(mocks.uploadProcessedVideo).not.toHaveBeenCalled();
+    expect(mocks.deleteRawVideo).not.toHaveBeenCalled();
+    expect(mocks.failVideo).not.toHaveBeenCalled();
+  });
+
+  it("rechecks ownership before cleanup after uploads", async () => {
+    const mocks = dependencies();
+    vi.mocked(mocks.ownsVideoClaim)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false);
+
+    const response = await post(createProcessingApp(mocks), pubsubRequest());
+
+    expect(response.status).toBe(500);
+    expect(mocks.uploadProcessedVideo).toHaveBeenCalledTimes(2);
+    expect(mocks.deleteRawVideo).not.toHaveBeenCalled();
+    expect(mocks.deletePublishedVideo).not.toHaveBeenCalled();
+    expect(mocks.failVideo).not.toHaveBeenCalled();
+  });
+
+  it("waits for every upload to settle and removes the completed subset", async () => {
+    const mocks = dependencies();
+    let finishSecondUpload: (() => void) | undefined;
+    vi.mocked(mocks.uploadProcessedVideo)
+      .mockRejectedValueOnce(new Error("first upload failed"))
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishSecondUpload = resolve;
+          }),
+      );
+
+    let responseResolved = false;
+    const responsePromise = post(
+      createProcessingApp(mocks),
+      pubsubRequest(),
+    ).then((response) => {
+      responseResolved = true;
+      return response;
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.uploadProcessedVideo).toHaveBeenCalledTimes(2);
+    });
+    expect(responseResolved).toBe(false);
+    expect(mocks.deleteRawVideo).not.toHaveBeenCalled();
+
+    finishSecondUpload?.();
+    expect((await responsePromise).status).toBe(500);
+    expect(mocks.deletePublishedVideo).toHaveBeenCalledWith(
+      outputFileNames[1].fileName,
+      expect.objectContaining({ claimToken: "claim-token" }),
+    );
+    expect(mocks.failVideo).toHaveBeenCalledOnce();
   });
 
   it("fails safely when claim ownership changes before completion", async () => {
@@ -224,6 +352,10 @@ describe("createProcessingApp", () => {
     expect(mocks.failVideo).toHaveBeenCalledWith(
       "user-1725000000000",
       "claim-token",
+      {
+        permanent: false,
+        reason: "A transient video processing failure occurred.",
+      },
     );
   });
 

@@ -21,7 +21,10 @@ const firebaseMocks = vi.hoisted(() => {
     }
   }
 
-  const videoReference = { path: "videos/video" };
+  const documentGet = vi.fn(() =>
+    Promise.resolve({ data: () => snapshotData }),
+  );
+  const videoReference = { get: documentGet, path: "videos/video" };
   const transaction: TransactionMock = {
     get: vi.fn(() => Promise.resolve({ data: () => snapshotData })),
     set: vi.fn(),
@@ -40,6 +43,7 @@ const firebaseMocks = vi.hoisted(() => {
     collection,
     deleteField,
     doc,
+    documentGet,
     fieldDelete,
     runTransaction,
     setNow(milliseconds: number) {
@@ -68,7 +72,12 @@ vi.mock("firebase-admin/firestore", () => ({
   })),
 }));
 
-import { claimVideo, completeVideo, failVideo } from "./firestore";
+import {
+  claimVideo,
+  completeVideo,
+  failVideo,
+  ownsVideoClaim,
+} from "./firestore";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -92,6 +101,8 @@ describe("claimVideo", () => {
         status: "processing",
         claimToken: "claim-token",
         claimedAt: expect.any(firebaseMocks.MockTimestamp),
+        permanent: firebaseMocks.deleteField,
+        failureReason: firebaseMocks.deleteField,
         updatedAt: expect.any(firebaseMocks.MockTimestamp),
       },
       { merge: true },
@@ -105,6 +116,25 @@ describe("claimVideo", () => {
       status: "processed",
     });
     expect(firebaseMocks.transaction.set).not.toHaveBeenCalled();
+  });
+
+  it("refuses to reclaim a permanently failed video", async () => {
+    firebaseMocks.setSnapshot({ status: "failed", permanent: true });
+
+    await expect(claimVideo("video-id", "user-id")).resolves.toEqual({
+      status: "permanent-failure",
+    });
+    expect(firebaseMocks.transaction.set).not.toHaveBeenCalled();
+  });
+
+  it("reclaims a transiently failed video", async () => {
+    firebaseMocks.setSnapshot({ status: "failed", permanent: false });
+
+    await expect(claimVideo("video-id", "user-id")).resolves.toEqual({
+      status: "claimed",
+      token: "claim-token",
+    });
+    expect(firebaseMocks.transaction.set).toHaveBeenCalledOnce();
   });
 
   it("rejects a live lease", async () => {
@@ -148,6 +178,38 @@ describe("claimVideo", () => {
   });
 });
 
+describe("ownsVideoClaim", () => {
+  it("requires the matching token and a live lease", async () => {
+    firebaseMocks.setSnapshot({
+      status: "processing",
+      claimToken: "claim-token",
+      claimedAt: new firebaseMocks.MockTimestamp(1_799_999_999_000),
+    });
+    await expect(ownsVideoClaim("video-id", "claim-token")).resolves.toBe(true);
+
+    firebaseMocks.setSnapshot({
+      status: "processing",
+      claimToken: "other-token",
+      claimedAt: new firebaseMocks.MockTimestamp(1_799_999_999_000),
+    });
+    await expect(ownsVideoClaim("video-id", "claim-token")).resolves.toBe(
+      false,
+    );
+
+    firebaseMocks.setSnapshot({
+      status: "processing",
+      claimToken: "claim-token",
+      claimedAt: new firebaseMocks.MockTimestamp(
+        1_800_000_000_000 - 66 * 60 * 1_000,
+      ),
+    });
+    await expect(ownsVideoClaim("video-id", "claim-token")).resolves.toBe(
+      false,
+    );
+    expect(firebaseMocks.documentGet).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("completeVideo", () => {
   it("completes only a matching claim and deletes lease fields", async () => {
     firebaseMocks.setSnapshot({
@@ -169,11 +231,13 @@ describe("completeVideo", () => {
         renditions: ["360p", "720p"],
         claimToken: firebaseMocks.deleteField,
         claimedAt: firebaseMocks.deleteField,
+        permanent: firebaseMocks.deleteField,
+        failureReason: firebaseMocks.deleteField,
         updatedAt: expect.any(firebaseMocks.MockTimestamp),
       },
       { merge: true },
     );
-    expect(firebaseMocks.fieldDelete).toHaveBeenCalledTimes(2);
+    expect(firebaseMocks.fieldDelete).toHaveBeenCalledTimes(4);
   });
 
   it.each([
@@ -198,12 +262,19 @@ describe("failVideo", () => {
       claimToken: "claim-token",
     });
 
-    await failVideo("video-id", "claim-token");
+    await expect(
+      failVideo("video-id", "claim-token", {
+        permanent: true,
+        reason: "No video stream.",
+      }),
+    ).resolves.toBe(true);
 
     expect(firebaseMocks.transaction.set).toHaveBeenCalledWith(
       firebaseMocks.videoReference,
       {
         status: "failed",
+        permanent: true,
+        failureReason: "No video stream.",
         claimToken: firebaseMocks.deleteField,
         claimedAt: firebaseMocks.deleteField,
         updatedAt: expect.any(firebaseMocks.MockTimestamp),
@@ -218,7 +289,12 @@ describe("failVideo", () => {
       claimToken: "other-token",
     });
 
-    await failVideo("video-id", "claim-token");
+    await expect(
+      failVideo("video-id", "claim-token", {
+        permanent: false,
+        reason: "Temporary failure.",
+      }),
+    ).resolves.toBe(false);
     expect(firebaseMocks.transaction.set).not.toHaveBeenCalled();
   });
 });

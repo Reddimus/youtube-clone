@@ -70,7 +70,7 @@ possibly become valid — bad base64, wrong bucket, an unparseable object name �
 returns `204` after logging. Returning an error would make it a poison message
 that consumes the subscription forever.
 
-**One decode, two encodes.** The transcoder
+**One decode, N encodes.** The transcoder
 [probes the source height first](video-processing-service/src/storage.ts) and
 emits only renditions the source can actually support, so a 360p upload is never
 upscaled to 720p. The renditions it does emit come out of a single `ffmpeg`
@@ -98,7 +98,7 @@ added to the document later.
 ```
 browser ──1── generateUploadUrl (Cloud Function)  ── signed POST policy
    │                                                       │
-   └──2── direct PUT ──▶ redd-raw-videos (GCS) ◀────────────┘
+   └──2── signed multipart POST ──▶ redd-raw-videos (GCS) ◀──┘
                               │
                               3  object.finalize
                               ▼

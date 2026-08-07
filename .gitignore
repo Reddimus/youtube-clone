@@ -1,32 +1,41 @@
 # Dependencies
 node_modules/
 
-# Build output
-dist/
-lib/
-.next/
-out/
+# Build output — paths are explicit rather than bare `lib/` or `dist/` globs,
+# which would also match source directories like yt-web-client/app/lib.
+/packages/contract/dist/
+/video-processing-service/dist/
+/yt-api-service/functions/lib/
+/yt-web-client/.next/
+/yt-web-client/out/
 *.tsbuildinfo
+next-env.d.ts
 
 # Test output
 coverage/
 
-# Local runtime scratch space for the video processor
-raw-videos/
-processed-videos/
+# Local scratch space for the video processor
+/video-processing-service/raw-videos/
+/video-processing-service/processed-videos/
 
-# Environment and credentials — never commit these
+# Environment and credentials — never commit these.
+# The .env.example templates are documentation and are committed on purpose.
 .env
 .env.*
 !.env.example
 *-key.json
 *service-account*.json
 credentials*.json
+*.pem
 
 # Tooling caches
 .eslintcache
 .firebase/
 .vercel/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # OS noise
 .DS_Store
