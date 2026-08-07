@@ -39,11 +39,11 @@ Then navigate to the `functions` directory.
 cd functions
 ```
 
-Open the `package.json` file. Ensure that the node version is set to 20.
+Open the `package.json` file. Ensure that the Node.js version is set to 22.
 
 ```json
 "engines": {
-  "node": "20"
+  "node": "22"
 },
 ```
 
@@ -54,7 +54,7 @@ cd functions
 ```
 
 ```sh
-npm install
+npm ci
 ```
 
 Our firebase functions project will be in the `functions` directory. In this case it's a bit redundant to have an outer directory (`yt-api-service`) but I wanted the naming to be clear. And typically firebase functions projects are within a `functions` directory.

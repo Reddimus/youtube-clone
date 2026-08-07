@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: web
+            directory: yt-web-client
+          - name: functions
+            directory: yt-api-service/functions
+          - name: processor
+            directory: video-processing-service
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  container:
+    name: Build ${{ matrix.name }} container
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: web
+            directory: yt-web-client
+          - name: processor
+            directory: video-processing-service
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build container
+        run: |
+          if [ "${{ matrix.name }}" = web ]; then
+            docker build \
+              --build-arg NEXT_PUBLIC_FIREBASE_API_KEY=ci-public-api-key \
+              --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=ci.firebaseapp.com \
+              --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID=ci-project \
+              --build-arg NEXT_PUBLIC_FIREBASE_APP_ID=ci-app-id \
+              --tag youtube-clone-${{ matrix.name }}:ci .
+          else
+            docker build --tag youtube-clone-${{ matrix.name }}:ci .
+          fi
+        working-directory: ${{ matrix.directory }}
+      - name: Smoke-test container
+        run: |
+          image="youtube-clone-${{ matrix.name }}:ci"
+          test "$(docker run --rm "$image" id -u)" = 1000
+          if [ "${{ matrix.name }}" = web ]; then
+            health_path=/
+          else
+            health_path=/healthz
+          fi
+          container_id="$(docker run --rm --detach --publish 127.0.0.1:3000:3000 "$image")"
+          trap 'docker stop "$container_id" >/dev/null 2>&1 || true' EXIT
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --show-error "http://127.0.0.1:3000${health_path}" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "$container_id"
+          exit 1

@@ -12,7 +12,9 @@ This is the web client part of the YouTube Clone project. It leverages Next.js f
 
 ### Prerequisites
 
-Before you begin, ensure you have `node.js` (20) and `npm` installed on your machine. Also make sure you are an authorized user of the Firebase project.
+Before you begin, install Node.js 22 (the repository root `.nvmrc` selects the
+tested version) and npm. Also make sure you are an authorized user of the
+Firebase project.
 
 1. **Navigate to the web client directory**:
    ```sh
@@ -20,7 +22,7 @@ Before you begin, ensure you have `node.js` (20) and `npm` installed on your mac
     ```
 2. **Install dependencies**:
     ```sh
-    npm install
+    npm ci
     ```
 
 ### Add Firebase SDK with Auth Handlers
@@ -40,11 +42,15 @@ const firebaseConfig = {
 };
 ```
 
-> Note: The following code is a template. Replace the placeholders with your Firebase project's configuration. API keys and other sensitive information should be kept secret.
+> Firebase web configuration identifies the public client; it is not an
+> authorization secret. Access must be protected with Firebase Authentication,
+> Security Rules, API restrictions, and App Check where appropriate. Never put
+> service-account keys or other server credentials in `NEXT_PUBLIC_` variables.
 
 > Note: If you already have a Firebase project, you can find the `Firebase SDK configuration` in the Firebase console under `Project Overview` > `Project Settings` > `Your apps` > `Firebase SDK snippet`.
 
-Optional: Or instead, you can create a `.env.local` file in the root directory of the project and add the following environment variables to keep the sensitive information private.
+Copy `.env.example` to `.env.local` and populate the public Firebase web
+configuration. `.env.local` is ignored by Git.
 
 ```sh
 NEXT_PUBLIC_FIREBASE_API_KEY=<YOUR_FIREBASE_API_KEY>
@@ -52,6 +58,7 @@ NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=<YOUR_FIREBASE_AUTH_DOMAIN>
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=<YOUR_FIREBASE_PROJECT_ID>
 NEXT_PUBLIC_FIREBASE_APP_ID=<YOUR_FIREBASE_APP_ID>
 NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=<YOUR_FIREBASE_MEASUREMENT_ID>
+NEXT_PUBLIC_PROCESSED_VIDEO_BUCKET=<YOUR_PROCESSED_VIDEO_BUCKET>
 ```
 
 That's it! Now you can test the sign-in button in the web client.
@@ -66,3 +73,19 @@ To run the web client, execute the following command:
 npm run dev
 ```
 
+### Container build
+
+Next.js embeds `NEXT_PUBLIC_` values in the browser bundle at build time. Pass
+the public Firebase configuration as build arguments in CI or locally; do not
+copy `.env.local` into the image:
+
+```sh
+docker build \
+  --build-arg NEXT_PUBLIC_FIREBASE_API_KEY \
+  --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN \
+  --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID \
+  --build-arg NEXT_PUBLIC_FIREBASE_APP_ID \
+  --build-arg NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID \
+  --build-arg NEXT_PUBLIC_PROCESSED_VIDEO_BUCKET \
+  -t yt-web-client .
+```

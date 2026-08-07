@@ -1,83 +1,96 @@
-import * as functions from "firebase-functions";
-import {initializeApp} from "firebase-admin/app";
-import {Firestore} from "firebase-admin/firestore";
+import { Storage } from "@google-cloud/storage";
+import { getApps, initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
+import { auth as authV1 } from "firebase-functions/v1";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
 
-import {Storage} from "@google-cloud/storage";
-import {onCall} from "firebase-functions/v2/https";
+import {
+  createRawVideoFileName,
+  contentTypeForVideoExtension,
+  maxUploadBytes,
+  normalizeVideoExtension,
+  normalizeUploadSize,
+  toPublicVideo,
+} from "./video";
 
-initializeApp();
-
-const firestore = new Firestore();
+const firebaseApp = getApps()[0] ?? initializeApp();
+const firestore = getFirestore(firebaseApp);
 const storage = new Storage();
 
-const rawVideoBucketName = "redd-raw-videos";
-
+const rawVideoBucketName =
+  process.env.RAW_VIDEO_BUCKET ?? "redd-raw-videos";
 const videoCollectionId = "videos";
 
-export interface Video {
-  id?: string,
-  uid?: string,
-  filename?: string,
-  status?: "processing" | "processed",
-  title?: string,
-  description?: string
-}
-
-export const createUser = functions.auth.user().onCreate((user) => {
-  const userInfo = {
+export const createUser = authV1.user().onCreate(async (user) => {
+  await firestore.collection("users").doc(user.uid).set({
     uid: user.uid,
-    email: user.email,
-    photoUrl: user.photoURL,
-  };
+    email: user.email ?? null,
+    photoUrl: user.photoURL ?? null,
+  });
 
-  firestore.collection("users").doc(user.uid).set(userInfo);
-  logger.info(`User Created: ${JSON.stringify(userInfo)}`);
-  return;
+  logger.info("User record created.", { uid: user.uid });
 });
 
-/**
- * Firestore function to generate a signed URL for uploading a video
- * @param data The video data
- * @returns The signed URL and filename
- * @throws functions.https.HttpsError if the user is not authenticated
- * @example generateUploadUrl({fileExtension: "mp4"})
- */
-export const generateUploadUrl = onCall({maxInstances: 1}, async (request) => {
-  // Check if the user is authenticated
+/** Generates a short-lived upload URL for an authenticated video upload. */
+export const generateUploadUrl = onCall({ maxInstances: 1 }, async (request) => {
   if (!request.auth) {
-    throw new functions.https.HttpsError(
-      "failed-precondition",
-      "The function must be called while authenticated."
+    throw new HttpsError(
+      "unauthenticated",
+      "Sign in before requesting a video upload URL.",
     );
   }
 
-  const auth = request.auth;
-  const data = request.data;
-  const bucket = storage.bucket(rawVideoBucketName);
+  let extension: string;
+  try {
+    const data = request.data as {
+      fileExtension?: unknown;
+      fileSize?: unknown;
+    } | null;
+    extension = normalizeVideoExtension(
+      data?.fileExtension,
+    );
+    normalizeUploadSize(data?.fileSize);
+  } catch (error) {
+    throw new HttpsError(
+      "invalid-argument",
+      error instanceof Error ? error.message : "Invalid video extension.",
+    );
+  }
 
-  // Generate a unique filename
-  const fileName = `${auth.uid}-${Date.now()}.${data.fileExtension}`;
+  const fileName = createRawVideoFileName(request.auth.uid, extension);
+  const contentType = contentTypeForVideoExtension(extension);
+  const [policy] = await storage
+    .bucket(rawVideoBucketName)
+    .file(fileName)
+    .generateSignedPostPolicyV4({
+      expires: Date.now() + 15 * 60 * 1000,
+      fields: {
+        "Content-Type": contentType,
+      },
+      conditions: [
+        ["content-length-range", 1, maxUploadBytes],
+        ["eq", "$Content-Type", contentType],
+      ],
+    });
 
-  // Get a v4 signed URL for uploading file
-  const [url] = await bucket.file(fileName).getSignedUrl({
-    version: "v4",
-    action: "write",
-    expires: Date.now() + 15 * 60 * 1000, // 15 minutes
-  });
-
-  return {url, fileName};
+  return {
+    url: policy.url,
+    fields: policy.fields,
+    fileName,
+    maxUploadBytes,
+  };
 });
 
-/**
- * Firestore function to get a video by ID
- * @param videoId The ID of the video
- * @returns The video object
- * @throws functions.https.HttpsError if the video is not found
- * @example getVideo("abc123")
- */
-export const getVideos = onCall({maxInstances: 1}, async () => {
-  const snapshot =
-    await firestore.collection(videoCollectionId).limit(10).get();
-  return snapshot.docs.map((doc) => doc.data());
+/** Returns a small public feed of videos that completed processing. */
+export const getVideos = onCall({ maxInstances: 1 }, async () => {
+  const snapshot = await firestore
+    .collection(videoCollectionId)
+    .where("status", "==", "processed")
+    .limit(10)
+    .get();
+
+  return snapshot.docs.map((document) =>
+    toPublicVideo(document.id, document.data()),
+  );
 });

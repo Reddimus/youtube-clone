@@ -1,12 +1,13 @@
 # Video Processing Service:
 
-The Video Processing Service is a core component of the YouTube clone project, designed to handle all aspects of video processing with efficiency and scalability. This service is built on a robust tech stack leveraging Node.js and Express.js for server-side logic, Fluent FFmpeg for comprehensive video processing capabilities, and a suite of Google Cloud services for data management and inter-service communication.
+The Video Processing Service is a core component of the YouTube clone project, designed to handle all aspects of video processing with efficiency and scalability. This service is built on Node.js and Express.js for server-side logic, the FFmpeg command-line tool for video processing, and a suite of Google Cloud services for data management and inter-service communication.
 
 ## Key Features and Technologies:
 
 - **Node.js and Express.js**: At the heart of the service is Node.js, providing the runtime environment for executing JavaScript on the server side. Express.js, a minimal and flexible Node.js web application framework, is used to handle HTTP requests, making the creation of API endpoints straightforward and efficient.
 
-- **Fluent FFmpeg**: This service utilizes Fluent FFmpeg, a Node.js wrapper for FFmpeg, to perform a wide range of video processing tasks. These include converting video formats, compressing videos, extracting thumbnails, and more, offering high performance and flexibility in video manipulation.
+- **FFmpeg**: The service invokes FFmpeg directly with a fixed argument list
+  (without a shell) to transcode uploaded videos to 360p MP4 output.
 
 - **TypeScript**: The entire codebase is written in TypeScript, a superset of JavaScript that adds static types. TypeScript's compile-time type checking enhances code quality and maintainability, making the development process more robust and error-free.
 
@@ -32,9 +33,9 @@ This Video Processing Service is designed with scalability, performance, and rel
     ```bash
     cd video-processing-service
     ```
-2. **Install Node.js (20) and npm dependencies**:
+2. **Install Node.js 22 and npm dependencies**:
     ```bash
-    npm install
+    npm ci
     ```
 
 ### Create a Google account and Firebase/Google cloud account
@@ -61,21 +62,35 @@ That's it! You have successfully set up the video processing service folder for 
 
 1. **Build the Docker image**:
     ```bash
-    docker build -t us-central1-docker.pkg.dev/<PROJECT_ID>/yt-web-client-repo/yt-web-client .
+    docker build -t us-central1-docker.pkg.dev/<PROJECT_ID>/video-processor/video-processor .
     ```
 2. **Push the Docker image to Google Artifact Registry**:
     ```bash
-    docker push us-central1-docker.pkg.dev/<PROJECT_ID>/yt-web-client-repo/yt-web-client
+    docker push us-central1-docker.pkg.dev/<PROJECT_ID>/video-processor/video-processor
     ```
 3. **Deploy the Docker image to Google Cloud Run**:
     ```bash
     # Deploy container to cloud run
-    gcloud run deploy yt-web-client --image us-central1-docker.pkg.dev/<PROJECT_ID>/yt-web-client-repo/yt-web-client \
+    gcloud run deploy video-processor --image us-central1-docker.pkg.dev/<PROJECT_ID>/video-processor/video-processor \
     --region=us-central1 \
     --platform managed \
+    --no-allow-unauthenticated \
+    --service-account=<PROCESSOR_SERVICE_ACCOUNT> \
     --timeout=3600 \
     --memory=2Gi \
     --cpu=1 \
     --min-instances=0 \
     --max-instances=1
     ```
+
+Keep this service private. Configure the Pub/Sub push subscription to use an
+OIDC service account with only `roles/run.invoker` on this service. Do not grant
+anonymous invocation; the HTTP handler assumes Cloud Run has authenticated the
+Pub/Sub caller.
+
+Apply the repository's lifecycle policy to the private raw-video bucket so raw
+uploads, including failed jobs, are removed after one day:
+
+```bash
+gsutil lifecycle set ../utils/raw-video-lifecycle.json gs://<RAW_VIDEO_BUCKET>
+```
