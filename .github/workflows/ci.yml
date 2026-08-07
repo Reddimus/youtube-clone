@@ -17,7 +17,7 @@ jobs:
     name: Format, type-check, lint, test, build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
@@ -45,7 +45,7 @@ jobs:
             dockerfile: video-processing-service/Dockerfile
             health_path: /healthz
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # Both images build from the repository root so the workspace and the
       # shared contract package are inside the build context.
       - name: Build container
