@@ -1,0 +1,138 @@
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid var(--edge);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding: var(--space-2) var(--space-4);
+}
+
+@media (min-width: 48rem) {
+  .inner {
+    padding-inline: var(--space-6);
+  }
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  margin-inline-start: calc(var(--space-2) * -1);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+}
+
+.mark {
+  color: var(--brand);
+  flex-shrink: 0;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.authGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/*
+ * Hidden below the small breakpoint rather than truncated: on a phone the
+ * identity is the least important thing in the row.
+ */
+.identity {
+  display: none;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+@media (min-width: 40rem) {
+  .identity {
+    display: block;
+  }
+}
+
+.authButton {
+  min-height: 2.5rem;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease);
+}
+
+.authButton:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  border-color: var(--ink-faint);
+}
+
+.authButton:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/*
+ * Reserves the auth control's width while auth resolves, so a returning user
+ * no longer sees "Sign in" flash and the row does not shift under the cursor.
+ */
+/*
+ * Demo mode is stated plainly rather than hidden: the sign-in and upload
+ * controls genuinely cannot work without a Firebase project, and a disabled
+ * button with no explanation is worse than an honest label.
+ */
+.demoChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-full);
+  background: var(--signal-surface);
+  color: var(--signal);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.authSkeleton {
+  display: block;
+  width: 5.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+}

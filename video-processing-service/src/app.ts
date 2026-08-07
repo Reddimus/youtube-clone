@@ -5,23 +5,29 @@ import express, {
   type Response,
 } from "express";
 
+import { defaultRenditionName, type RenditionName } from "@yt/contract";
+
 import type { VideoClaimResult } from "./claims";
-import { parseVideoUploadRequest } from "./pubsub";
+import { parseVideoUploadRequest, type VideoOutputFile } from "./pubsub";
 
 export interface ProcessingDependencies {
   rawVideoBucketName: string;
-  claimVideo(videoId: string, uid: string): Promise<VideoClaimResult>;
-  completeVideo(
+  claimVideo: (videoId: string, uid: string) => Promise<VideoClaimResult>;
+  completeVideo: (
     videoId: string,
     claimToken: string,
     filename: string,
-  ): Promise<boolean>;
-  failVideo(videoId: string, claimToken: string): Promise<void>;
-  downloadRawVideo(fileName: string): Promise<void>;
-  convertVideo(inputFileName: string, outputFileName: string): Promise<void>;
-  uploadProcessedVideo(fileName: string): Promise<void>;
-  deleteRawVideo(fileName: string): Promise<void>;
-  deleteProcessedVideo(fileName: string): Promise<void>;
+    renditions: RenditionName[],
+  ) => Promise<boolean>;
+  failVideo: (videoId: string, claimToken: string) => Promise<void>;
+  downloadRawVideo: (fileName: string) => Promise<void>;
+  convertVideo: (
+    inputFileName: string,
+    outputFileNames: readonly VideoOutputFile[],
+  ) => Promise<VideoOutputFile[]>;
+  uploadProcessedVideo: (fileName: string) => Promise<void>;
+  deleteRawVideo: (fileName: string) => Promise<void>;
+  deleteProcessedVideo: (fileName: string) => Promise<void>;
 }
 
 export function createProcessingApp(
@@ -67,16 +73,27 @@ export function createProcessingApp(
       claimToken = claim.token;
 
       await dependencies.downloadRawVideo(event.inputFileName);
-      await dependencies.convertVideo(
+      const outputs = await dependencies.convertVideo(
         event.inputFileName,
-        event.outputFileName,
+        event.outputFileNames,
       );
-      await dependencies.uploadProcessedVideo(event.outputFileName);
+      await Promise.all(
+        outputs.map((output) =>
+          dependencies.uploadProcessedVideo(output.fileName),
+        ),
+      );
+      const defaultOutput = outputs.find(
+        (output) => output.rendition === defaultRenditionName,
+      );
+      if (!defaultOutput) {
+        throw new Error("The default video rendition was not produced.");
+      }
 
       const completed = await dependencies.completeVideo(
         event.videoId,
         claimToken,
-        event.outputFileName,
+        defaultOutput.fileName,
+        outputs.map((output) => output.rendition),
       );
       if (!completed) {
         throw new Error("The processing claim expired before completion.");
@@ -85,18 +102,27 @@ export function createProcessingApp(
       processingFailed = true;
       console.error("Video processing failed.", error);
       if (claimToken) {
-        await dependencies.failVideo(event.videoId, claimToken).catch((failure) => {
-          console.error("The failed video claim could not be updated.", failure);
-        });
+        await dependencies
+          .failVideo(event.videoId, claimToken)
+          .catch((failure) => {
+            console.error(
+              "The failed video claim could not be updated.",
+              failure,
+            );
+          });
       }
     } finally {
       if (claimToken) {
         const cleanupResults = await Promise.allSettled([
           dependencies.deleteRawVideo(event.inputFileName),
-          dependencies.deleteProcessedVideo(event.outputFileName),
+          ...event.outputFileNames.map((output) =>
+            dependencies.deleteProcessedVideo(output.fileName),
+          ),
         ]);
         if (cleanupResults.some((result) => result.status === "rejected")) {
-          console.warn("One or more temporary video files could not be removed.");
+          console.warn(
+            "One or more temporary video files could not be removed.",
+          );
         }
       }
     }

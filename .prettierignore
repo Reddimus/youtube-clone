@@ -1,0 +1,9 @@
+node_modules
+dist
+lib
+coverage
+.next
+package-lock.json
+*.min.*
+docs/system-design.jpg
+yt-web-client/public

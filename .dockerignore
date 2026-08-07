@@ -1,0 +1,26 @@
+**/node_modules
+**/coverage
+**/.next
+.git
+.github
+docs
+.DS_Store
+
+# Build output — named explicitly rather than with a `**/lib` glob, which would
+# also exclude yt-web-client/app/lib and break the build.
+packages/contract/dist
+video-processing-service/dist
+yt-api-service/functions/lib
+
+# Runtime scratch space for the processor
+video-processing-service/raw-videos
+video-processing-service/processed-videos
+
+# Secrets — never into an image
+**/.env
+**/.env.*
+!**/.env.example
+**/*-key.json
+**/*service-account*.json
+**/credentials*.json
+**/npm-debug.log*

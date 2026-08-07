@@ -1,3 +1,79 @@
-.thumbnail {
-  margin: 10px;
+.intro {
+  margin-bottom: var(--space-6);
+  max-width: var(--reading-max);
+}
+
+.heading {
+  font-size: var(--text-3xl);
+  font-weight: 700;
+}
+
+.lede {
+  margin-top: var(--space-2);
+  color: var(--ink-muted);
+  font-size: var(--text-lg);
+  line-height: var(--leading-snug);
+}
+
+/*
+ * auto-fill with a minmax track gives a fluid grid with no breakpoints to
+ * maintain: one column on a phone, four on a wide desktop.
+ */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: var(--space-5) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-7);
+}
+
+.more,
+.retry {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 var(--space-5);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    background-color var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease);
+}
+
+.more:hover,
+.retry:hover {
+  background: var(--surface-sunken);
+  border-color: var(--ink-faint);
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: var(--reading-max);
+  padding: var(--space-6);
+  border: 1px dashed var(--edge-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+}
+
+.notice h2 {
+  font-size: var(--text-xl);
+}
+
+.notice p {
+  color: var(--ink-muted);
 }

@@ -1,108 +1,72 @@
-# YouTube Clone - API Service
+# yt-api-service
 
-## Introduction
+Firebase Functions, Firestore rules, and Firestore indexes.
 
-This directory contains the API service for the YouTube clone project. The API service is built using Firebase Functions and handles various backend operations such as user authentication, video uploads, and video processing.
-
-This directory is the source code for the API service and the highlight of this section is the `createUser` located in the `functions/src/index.ts` file. If you would like to replicate this function in your own project, follow the guide below.
-
-## Key Features and Technologies
-
-- **Firebase Functions**: Serverless functions to handle backend logic.
-- **Firebase Auth**: Authentication service to manage user sign-in and sign-out.
-- **Firebase Firestore**: NoSQL database to store user and video metadata.
-
-## Create User Firebase Function Guide
-
-### 1. Install Firebase CLI
-```sh
-npm install -g firebase-tools
+```bash
+npm run build -w @yt/api-service
+npm run serve -w @yt/api-service     # emulator on localhost:4000
 ```
 
-Authenticate with your Google account:
+Requires the Firebase CLI: `npm install -g firebase-tools && firebase login`.
 
-```sh
-firebase login
+## Functions
+
+| Function            | Type            | Purpose                                                  |
+| ------------------- | --------------- | -------------------------------------------------------- |
+| `generateUploadUrl` | callable v2     | Authorizes an upload and returns a signed V4 POST policy |
+| `getVideos`         | callable v2     | Paginated public feed                                    |
+| `createUser`        | Auth trigger v1 | Writes the user document on first sign-in                |
+
+### `generateUploadUrl`
+
+Requires `request.auth`. Validates the extension against the shared allowlist,
+the size against the 250 MiB cap, and the optional `title` (≤100 chars) and
+`description` (≤5000 chars). Generates a server-side object name — the client
+never chooses it — writes the `videos/{videoId}` document with
+`status: "uploading"`, and returns a policy that expires in 15 minutes with
+`content-length-range` and `eq $Content-Type` conditions that Cloud Storage
+enforces itself.
+
+### `getVideos`
+
+Returns `{ videos, nextCursor }`. Orders by `updatedAt DESC, __name__ DESC`,
+with a second document-ID-ordered phase for legacy documents that predate
+`updatedAt` — Firestore omits documents missing an indexed field, so a single
+query would silently drop them. `limit` defaults to 12 and is clamped to 1–50.
+Cursors are opaque and validated strictly; a malformed one is rejected with
+`invalid-argument` rather than trusted.
+
+Every document goes through `toPublicVideo`, an allowlist, so `uid`,
+`claimToken`, and `status` cannot reach a client.
+
+## Rules and indexes
+
+`firestore.rules` and `storage.rules` deny **all** client SDK access. The
+collections are written only by the Admin SDK inside these functions and the
+processor, and read only through `getVideos`. Both rule files and
+`firestore.indexes.json` are version-controlled here rather than living only in
+the Firebase console.
+
+```bash
+firebase deploy --only firestore:rules,firestore:indexes,storage:rules
 ```
 
-### 2. Install packages
+## Build
 
-Make sure you are in the `yt-api-service` directory.
+`npm run build` bundles with **esbuild** into a single `lib/index.js`, keeping
+`firebase-admin`, `firebase-functions`, and `@google-cloud/storage` external.
 
-```sh
-cd yt-api-service
-```
+This is deliberate. Firebase deploys only the `functions/` directory and runs
+`npm install` in the cloud, where a workspace dependency like `@yt/contract`
+cannot resolve. Bundling inlines the contract, so nothing at runtime depends on
+a local workspace package — and cold starts improve as a side effect.
+`tsc --noEmit` still does the type-checking.
 
-Then navigate to the `functions` directory.
+## Runtime
 
-```sh
-cd functions
-```
+`nodejs24`. Note that Google decommissions `nodejs20` on **2026-10-30**; any
+deployment still on it needs to move.
 
-Open the `package.json` file. Ensure that the Node.js version is set to 22.
-
-```json
-"engines": {
-  "node": "22"
-},
-```
-
-Now we will install the necessary packages for our firebase functions project.
-
-```sh
-cd functions
-```
-
-```sh
-npm ci
-```
-
-Our firebase functions project will be in the `functions` directory. In this case it's a bit redundant to have an outer directory (`yt-api-service`) but I wanted the naming to be clear. And typically firebase functions projects are within a `functions` directory.
-
-Install the firebase functions package, as well as the admin sdk.
-
-```sh
-npm install firebase-functions@latest firebase-admin@latest
-```
-
-The admin SDK is used to access firebase services from privileged environments (like a server). We will use it to access the firestore database.
-
-## Test with Firebase Emulator
-
-Build firebase functions and run the emulator.
-
-```sh
-npm run serve
-```
-
-This will start the firebase emulator suite. It will start a local instance of the firebase services that we can use for development. We can define other resources like firestore and firebase auth inside the `firebase.json` file, which can also be emulated. But for now we will keep things simple.
-
-Navigate to `http://localhost:4000` to see the firebase emulator UI.
-
-It is similar to the Firebase console UI, but it is only for local development. It will not affect your actual Firebase project.
-
-Navigate to function logs and you should find a url that you can paste into your browser to test functions.
-
-### Deploy Firebase Functions
-
-(Optional): Before deploying you may need to rerun npm install in the functions directory. For some reason I had errors when deploying without doing this.
-
-```sh
-npm install
-```
-
-If you still have errors, I recommend deleting your `node_modules` directory and rerunning `npm install`. If you still have errors and you are running Ubuntu WSL mount, you may want to move this project to a non-mounted directory as firebase deploy has a set timeout and the mount may be causing the timeout.
-
-And then you can deploy the functions.
-
-```sh
-npm run deploy
-```
-
-That's it! We can view deployed functions in the `Firebase console -> Functions` and `Google Cloud Console -> Cloud Functions`.
-
-## References
-
-1. Firebase CLI - https://firebase.google.com/docs/functions/get-started?authuser=0&gen=2nd#set-up-your-environment-and-the-firebase-cli
-2. Firebase Emulator - https://firebase.google.com/docs/functions/get-started?authuser=0&gen=2nd#emulate-execution-of-your-functions
-3. Firebase Admin SDK - https://firebase.google.com/docs/admin/setup
+`createUser` uses the v1 Auth trigger, which remains the supported path for
+`onCreate` in `firebase-functions` v7. Identity Platform blocking functions are
+the eventual migration target.

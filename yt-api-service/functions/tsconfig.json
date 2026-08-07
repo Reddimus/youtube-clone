@@ -1,21 +1,19 @@
 {
   "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023"],
+    "types": ["node"],
     "module": "Node16",
     "moduleResolution": "Node16",
+    "rootDir": "src",
     "esModuleInterop": true,
     "noImplicitReturns": true,
     "noUnusedLocals": true,
-    "outDir": "lib",
-    "sourceMap": true,
     "skipLibCheck": true,
     "strict": true,
-    "target": "es2022"
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
   },
-  "compileOnSave": true,
-  "include": [
-    "src"
-  ],
-  "exclude": [
-    "src/**/*.test.ts"
-  ]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "lib"]
 }

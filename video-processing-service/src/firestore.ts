@@ -1,15 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  applicationDefault,
-  getApps,
-  initializeApp,
-} from "firebase-admin/app";
-import {
-  FieldValue,
-  Timestamp,
-  getFirestore,
-} from "firebase-admin/firestore";
+import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
+import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
+
+import type { RenditionName } from "@yt/contract";
 
 import { uploadTimestamp, type VideoClaimResult } from "./claims";
 
@@ -76,6 +70,7 @@ export async function completeVideo(
   videoId: string,
   claimToken: string,
   filename: string,
+  renditions: RenditionName[],
 ): Promise<boolean> {
   const videoReference = firestore.collection(videoCollectionId).doc(videoId);
 
@@ -91,6 +86,7 @@ export async function completeVideo(
       {
         status: "processed",
         filename,
+        renditions,
         claimToken: FieldValue.delete(),
         claimedAt: FieldValue.delete(),
         updatedAt: Timestamp.now(),

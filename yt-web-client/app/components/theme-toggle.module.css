@@ -1,0 +1,68 @@
+.toggle {
+  /* 2.75rem clears the 44px touch-target guideline. */
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease);
+}
+
+.toggle:hover {
+  background: var(--surface-sunken);
+  border-color: var(--edge);
+  color: var(--ink);
+}
+
+.toggle:active {
+  transform: translateY(1px);
+}
+
+/*
+ * Which icon shows is decided entirely by the theme attribute and the system
+ * preference — the same two signals the palette itself keys off. Both spans
+ * occupy the same grid cell so the button never changes size.
+ */
+.whenLight,
+.whenDark {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+}
+
+.whenDark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .whenLight {
+    display: none;
+  }
+
+  :root:not([data-theme="light"]) .whenDark {
+    display: grid;
+  }
+}
+
+:root[data-theme="dark"] .whenLight {
+  display: none;
+}
+
+:root[data-theme="dark"] .whenDark {
+  display: grid;
+}
+
+:root[data-theme="light"] .whenLight {
+  display: grid;
+}
+
+:root[data-theme="light"] .whenDark {
+  display: none;
+}

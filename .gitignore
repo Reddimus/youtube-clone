@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+lib/
+.next/
+out/
+*.tsbuildinfo
+
+# Test output
+coverage/
+
+# Local runtime scratch space for the video processor
+raw-videos/
+processed-videos/
+
+# Environment and credentials — never commit these
+.env
+.env.*
+!.env.example
+*-key.json
+*service-account*.json
+credentials*.json
+
+# Tooling caches
+.eslintcache
+.firebase/
+.vercel/
+
+# OS noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,31 @@
+version: 2
+
+updates:
+  # One npm entry covers every workspace, because the repository has a single
+  # root lockfile.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      types:
+        patterns: ["@types/*"]
+      lint-and-format:
+        patterns: ["eslint*", "typescript-eslint", "prettier*"]
+      testing:
+        patterns: ["vitest", "@vitest/*", "@testing-library/*", "jsdom"]
+      next:
+        patterns: ["next", "eslint-config-next", "react", "react-dom"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker
+    directories:
+      - /yt-web-client
+      - /video-processing-service
+    schedule:
+      interval: monthly

@@ -1,0 +1,108 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/*
+ * The stage owns the aspect ratio so the page never reflows when metadata
+ * loads. Previously the <video> had no dimensions at all: it rendered at the
+ * UA default 300x150, then jumped to the intrinsic size, and a 1080p source
+ * overflowed the viewport (masked by body overflow-x:hidden).
+ */
+.stage {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  background: #000;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+}
+
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/*
+ * Fallback content for browsers that cannot play the source. The stage is
+ * always black here, so these colours are pinned rather than inherited from
+ * the theme — otherwise the light palette would put dark text on black.
+ */
+.video > p {
+  padding: var(--space-5);
+  color: #f2f1ee;
+  text-align: center;
+}
+
+.video > p a {
+  color: #ff9d9d;
+  text-decoration: underline;
+}
+
+.unavailable {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  padding: var(--space-5);
+  border: 1px dashed var(--edge-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+.quality {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.qualityLabel {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.qualityOptions {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+}
+
+.qualityOn,
+.qualityOff {
+  min-height: 2rem;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
+}
+
+.qualityOn {
+  background: var(--surface-inverse);
+  color: var(--ink-inverse);
+}
+
+.qualityOff {
+  background: transparent;
+  color: var(--ink-muted);
+}
+
+.qualityOff:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
