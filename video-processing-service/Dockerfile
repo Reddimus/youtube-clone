@@ -3,7 +3,7 @@
 # The service is an npm workspace and depends on packages/contract, so the
 # whole workspace has to be visible to the installer.
 
-FROM node:24-bookworm-slim AS builder
+FROM node:26-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ COPY video-processing-service ./video-processing-service
 RUN npm run build --workspace @yt/contract \
   && npm run build --workspace video-processing-service
 
-FROM node:24-bookworm-slim AS runner
+FROM node:26-bookworm-slim AS runner
 
 ENV NODE_ENV=production \
     PORT=3000
