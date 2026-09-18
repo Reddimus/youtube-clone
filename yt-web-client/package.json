@@ -20,18 +20,18 @@
   "dependencies": {
     "@yt/contract": "*",
     "firebase": "^12.17.1",
-    "next": "^16.3.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "next": "^16.3.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.3",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.0.5",
-    "eslint-config-next": "^16.3.0",
+    "eslint-config-next": "^16.3.5",
     "jsdom": "^30.0.1"
   }
 }
